@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import MonthSelector from "@/components/MonthSelector";
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
 import { TEAM_MEMBERS } from "@/lib/team";
@@ -11,6 +11,7 @@ import {
   totalPct, computeSummaryCredits, getSummaryGroups,
 } from "@/lib/distribution";
 import { fetchTaskUsage, TeamUsage } from "@/lib/sheetTasks";
+import { fetchDistFromSheet, saveDistToSheet, flattenConfig } from "@/lib/sheetDistribution";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 
@@ -37,14 +38,37 @@ export default function CreditDistributionPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editVal, setEditVal]     = useState("");
 
+  // sheet sync state
+  const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // previous month sheet data
   const [prevUsage, setPrevUsage]     = useState<Record<string, TeamUsage>>({});
   const [prevLoading, setPrevLoading] = useState(false);
 
-  // Load config when month changes
+  // Load config: localStorage first, then merge from sheet
   useEffect(() => {
-    setConfig(loadDistConfig(year, month));
+    const local = loadDistConfig(year, month);
+    setConfig(local);
     setEditingId(null);
+    setSyncStatus("idle");
+
+    fetchDistFromSheet(year, month).then((sheetMap) => {
+      if (!sheetMap) return;
+      setConfig((prev) => {
+        const merged: DistConfig = prev.map((p) => ({
+          ...p,
+          companies: p.companies.map((c) => ({
+            ...c,
+            teams: c.teams.map((t) =>
+              sheetMap[t.id] !== undefined ? { ...t, pct: sheetMap[t.id] } : t
+            ),
+          })),
+        }));
+        saveDistConfig(year, month, merged);
+        return merged;
+      });
+    });
   }, [year, month]);
 
   // Fetch previous month's task usage
@@ -71,7 +95,7 @@ export default function CreditDistributionPage() {
   const prevConfig       = loadDistConfig(py, pm); // synchronous from localStorage or default
   const prevAlloc        = computeSummaryCredits(prevConfig, prevTotalCredits);
 
-  // Update a team's pct
+  // Update a team's pct — debounce sheet save by 1.5s
   const updatePct = useCallback((teamId: string, newPct: number) => {
     setConfig((prev) => {
       const next: DistConfig = prev.map((p) => ({
@@ -82,6 +106,16 @@ export default function CreditDistributionPage() {
         })),
       }));
       saveDistConfig(year, month, next);
+
+      // Debounced sheet save
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      setSyncStatus("saving");
+      saveTimer.current = setTimeout(() => {
+        saveDistToSheet(year, month, flattenConfig(next))
+          .then((ok) => setSyncStatus(ok ? "saved" : "error"))
+          .catch(() => setSyncStatus("error"));
+      }, 1500);
+
       return next;
     });
   }, [year, month]);
@@ -101,41 +135,51 @@ export default function CreditDistributionPage() {
 
   return (
     <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
 
         {/* ── Page Header ── */}
-        <div className="mb-6 sm:mb-8">
-          <div className="flex items-start justify-between gap-4 mb-3">
-            <p className="text-xs font-black uppercase tracking-[0.15em] pt-1"
-              style={{ color: "var(--accent)" }}>Credit Distribution · กระจายเครดิต</p>
-            <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
+        <div className="mb-3">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <p className="text-xs font-black uppercase tracking-[0.15em]"
+                style={{ color: "var(--accent)" }}>Credit Distribution</p>
+              <h1 className="text-2xl font-black leading-none tracking-tight"
+                style={{ color: "var(--text-primary)" }}>
+                {THAI_MONTHS_SHORT[month - 1].replace(".", "")}{" "}
+                <span style={{ color: "var(--accent)" }}>{buddhist}</span>
+              </h1>
+            </div>
+            <div className="flex items-center gap-3">
+              {syncStatus === "saving" && (
+                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>⏳ กำลังบันทึก…</span>
+              )}
+              {syncStatus === "saved" && (
+                <span className="text-xs font-medium" style={{ color: "#22C55E" }}>✓ บันทึกลง Sheet แล้ว</span>
+              )}
+              {syncStatus === "error" && (
+                <span className="text-xs font-medium" style={{ color: "#EF4444" }}>⚠ บันทึกไม่สำเร็จ</span>
+              )}
+              <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
+            </div>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-black leading-none tracking-tight"
-            style={{ color: "var(--text-primary)" }}>
-            {THAI_MONTHS_SHORT[month - 1].replace(".", "")}{" "}
-            <span style={{ color: "var(--accent)" }}>{buddhist}</span>
-          </h1>
-          <p className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>
-            กระจายเครดิตรวม {totalCredits} M Coin ให้กับแต่ละทีม — คลิกที่ตัวเลข % เพื่อแก้ไข
-          </p>
         </div>
 
         {/* ── Total bar ── */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="rounded-2xl px-5 py-3 flex items-center gap-3 shadow-sm"
+        <div className="flex items-center gap-2 mb-3">
+          <div className="rounded-xl px-4 py-2 flex items-center gap-2 shadow-sm"
             style={{ background: "var(--accent)", color: "#fff" }}>
-            <span className="text-xs font-black uppercase tracking-widest opacity-75">เครดิตรวม</span>
-            <span className="font-black text-2xl">{totalCredits}</span>
-            <span className="text-sm font-semibold opacity-75">M Coin</span>
+            <span className="text-[10px] font-black uppercase tracking-widest opacity-75">เครดิตรวม</span>
+            <span className="font-black text-xl">{totalCredits}</span>
+            <span className="text-xs font-semibold opacity-75">M Coin</span>
           </div>
           {sum !== 100 && (
-            <div className="rounded-2xl px-4 py-3 border text-sm font-semibold"
+            <div className="rounded-xl px-3 py-2 border text-xs font-semibold"
               style={{ borderColor: "#FBBF24", background: "#FFFBEB", color: "#92400E" }}>
               ⚠ รวม {sum.toFixed(1)}% {sum < 100 ? `(ขาด ${(100 - sum).toFixed(1)}%)` : `(เกิน ${(sum - 100).toFixed(1)}%)`}
             </div>
           )}
           {sum === 100 && (
-            <div className="rounded-2xl px-4 py-3 border text-sm font-semibold"
+            <div className="rounded-xl px-3 py-2 border text-xs font-semibold"
               style={{ borderColor: "var(--border)", background: "var(--bg-card)", color: "var(--text-muted)" }}>
               ✓ รวม 100% พอดี
             </div>
@@ -143,7 +187,7 @@ export default function CreditDistributionPage() {
         </div>
 
         {/* ── Main layout ── */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-4 sm:gap-6 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_540px] gap-4 sm:gap-6 items-start">
 
           {/* ── Distribution Table ── */}
           <div className="rounded-2xl overflow-hidden border shadow-sm"
@@ -151,14 +195,14 @@ export default function CreditDistributionPage() {
 
             {/* Table header */}
             <div className="grid border-b"
-              style={{ gridTemplateColumns: "1fr 90px 110px", borderColor: "var(--border)", background: "#FAFAFA" }}>
-              <div className="px-5 py-3 text-[10px] font-black uppercase tracking-widest flex items-center"
+              style={{ gridTemplateColumns: "1fr 92px 92px", borderColor: "var(--border)", background: "#FAFAFA" }}>
+              <div className="px-5 py-2 text-xs font-black uppercase tracking-widest flex items-center"
                 style={{ color: "var(--text-muted)" }}>ทีม / บริษัท</div>
-              <div className="px-3 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center"
-                style={{ color: "var(--accent)", background: "var(--accent-light)" }}>%</div>
-              <div className="px-3 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center"
+              <div className="px-4 py-2 text-xs font-black uppercase tracking-widest flex items-center justify-center"
+                style={{ color: "var(--text-muted)", background: "var(--bg-card)" }}>%</div>
+              <div className="px-4 py-2 text-xs font-black uppercase tracking-widest flex items-center justify-center"
                 style={{ color: "#fff", background: "var(--bg-dark)" }}>
-                M Coin<sub className="block normal-case font-medium tracking-normal text-[10px] not-italic opacity-60">เดือนนี้</sub>
+                M Coin
               </div>
             </div>
 
@@ -169,17 +213,17 @@ export default function CreditDistributionPage() {
                 <div key={priority.id}>
                   {/* Priority row */}
                   <div className="grid border-b"
-                    style={{ gridTemplateColumns: "1fr 90px 110px", borderColor: "var(--border)", background: priority.bgColor }}>
-                    <div className="px-5 py-2.5 flex items-center">
-                      <span className="text-sm font-black" style={{ color: priority.textColor }}>{priority.name}</span>
+                    style={{ gridTemplateColumns: "1fr 92px 92px", borderColor: "var(--border)", background: priority.bgColor }}>
+                    <div className="px-5 py-1 flex items-center">
+                      <span className="text-xs font-black" style={{ color: priority.textColor }}>{priority.name}</span>
                     </div>
-                    <div className="px-3 py-2.5 flex items-center justify-center">
-                      <span className="text-sm font-black" style={{ color: priority.textColor }}>
+                    <div className="px-4 py-1 flex items-center justify-center">
+                      <span className="text-xs font-black tracking-wide" style={{ color: priority.textColor }}>
                         {priorityPct.toFixed(2)}%
                       </span>
                     </div>
-                    <div className="px-3 py-2.5 flex items-center justify-center">
-                      <span className="text-sm font-black" style={{ color: priority.textColor }}>{priorityCoins}</span>
+                    <div className="px-4 py-1 flex items-center justify-center">
+                      <span className="text-xs font-black" style={{ color: priority.textColor }}>{priorityCoins}</span>
                     </div>
                   </div>
 
@@ -190,18 +234,18 @@ export default function CreditDistributionPage() {
                       <div key={company.id}>
                         {/* Company row */}
                         <div className="grid border-b"
-                          style={{ gridTemplateColumns: "1fr 90px 110px", borderColor: "var(--border)", background: "#F5F0EE" }}>
-                          <div className="px-5 py-2 flex items-center">
+                          style={{ gridTemplateColumns: "1fr 92px 92px", borderColor: "var(--border)", background: "#F5F0EE" }}>
+                          <div className="px-5 py-0.5 flex items-center">
                             <span className="text-xs font-black uppercase tracking-wide"
                               style={{ color: "var(--text-secondary)" }}>{company.name}</span>
                           </div>
-                          <div className="px-3 py-2 flex items-center justify-center">
-                            <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+                          <div className="px-4 py-0.5 flex items-center justify-center">
+                            <span className="text-xs font-medium tracking-wide" style={{ color: "var(--text-secondary)" }}>
                               {companyPct.toFixed(2)}%
                             </span>
                           </div>
-                          <div className="px-3 py-2 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.03)" }}>
-                            <span className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>{companyCoins}</span>
+                          <div className="px-4 py-0.5 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.03)" }}>
+                            <span className="text-xs font-medium tracking-wide" style={{ color: "var(--text-secondary)" }}>{companyCoins}</span>
                           </div>
                         </div>
 
@@ -212,19 +256,19 @@ export default function CreditDistributionPage() {
                           return (
                             <div key={team.id} className="grid border-b transition-colors hover:bg-[#FFF8F5]"
                               style={{
-                                gridTemplateColumns: "1fr 90px 110px",
+                                gridTemplateColumns: "1fr 92px 92px",
                                 borderColor: "var(--border)",
                                 background: ti % 2 === 0 ? "var(--bg-card)" : "#FEFEFE",
                               }}>
                               {/* Name */}
-                              <div className="px-7 py-3 flex items-center">
-                                <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                              <div className="px-6 py-1 flex items-center">
+                                <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
                                   - {team.name}
                                 </span>
                               </div>
                               {/* % editable */}
-                              <div className="px-3 py-3 flex items-center justify-center"
-                                style={{ background: "var(--accent-light)" }}>
+                              <div className="px-4 py-1 flex items-center justify-center"
+                                style={{ background: "var(--bg-card)" }}>
                                 {isEditing ? (
                                   <input
                                     type="number" min="0" max="100" step="0.5"
@@ -236,21 +280,21 @@ export default function CreditDistributionPage() {
                                       if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); commitEdit(team.id); }
                                       if (e.key === "Escape") setEditingId(null);
                                     }}
-                                    className="w-14 text-center text-sm font-black rounded-lg border px-1 py-0.5 focus:outline-none"
-                                    style={{ borderColor: "var(--accent)", color: "var(--accent)", background: "#fff" }}
+                                    className="w-16 text-center text-xs font-semibold rounded border px-2 py-1 focus:outline-none"
+                                    style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "#fff" }}
                                   />
                                 ) : (
                                   <button
                                     onClick={() => startEdit(team)}
-                                    className="text-sm font-black rounded-lg px-2 py-0.5 transition-all hover:bg-white/60"
-                                    style={{ color: "var(--accent)" }}>
+                                    className="text-xs font-medium tracking-wide rounded px-2 py-1 transition-all hover:bg-gray-100"
+                                    style={{ color: "var(--text-secondary)" }}>
                                     {team.pct.toFixed(2)}%
                                   </button>
                                 )}
                               </div>
                               {/* Coins */}
-                              <div className="px-3 py-3 flex items-center justify-center" style={{ background: "#FAFAFA" }}>
-                                <span className="font-black text-base"
+                              <div className="px-4 py-1 flex items-center justify-center" style={{ background: "var(--accent-light)" }}>
+                                <span className="font-black text-xs"
                                   style={{ color: "var(--accent)" }}>{coins}</span>
                               </div>
                             </div>
@@ -264,18 +308,18 @@ export default function CreditDistributionPage() {
             })}
 
             {/* Total row */}
-            <div className="grid" style={{ gridTemplateColumns: "1fr 90px 110px", background: "var(--bg-dark)" }}>
-              <div className="px-5 py-4 flex items-center col-span-1">
+            <div className="grid" style={{ gridTemplateColumns: "1fr 92px 92px", background: "var(--bg-dark)" }}>
+              <div className="px-5 py-2 flex items-center col-span-1">
                 <span className="text-xs font-black uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.5)" }}>
                   Total
                 </span>
               </div>
-              <div className="px-3 py-4 flex items-center justify-center">
-                <span className="font-black text-base" style={{ color: sum === 100 ? "var(--accent)" : "#FBBF24" }}>
+              <div className="px-4 py-2 flex items-center justify-center">
+                <span className="font-black text-xs tracking-wide" style={{ color: sum === 100 ? "var(--accent)" : "#FBBF24" }}>
                   {sum.toFixed(2)}%
                 </span>
               </div>
-              <div className="px-3 py-4 flex items-center justify-center" style={{ background: "var(--accent)" }}>
+              <div className="px-4 py-2 flex items-center justify-center" style={{ background: "var(--accent)" }}>
                 <span className="font-black text-xl text-white">{totalCredits}</span>
               </div>
             </div>
@@ -288,29 +332,29 @@ export default function CreditDistributionPage() {
 
               {/* Panel header */}
               <div className="border-b" style={{ borderColor: "var(--border)" }}>
-                <div className="grid" style={{ gridTemplateColumns: "1fr 70px 70px" }}>
-                  <div className="px-4 py-3 flex items-end" style={{ background: "#FAFAFA" }}>
-                    <span className="text-[10px] font-black uppercase tracking-widest"
+                <div className="grid" style={{ gridTemplateColumns: "1fr 110px 110px" }}>
+                  <div className="px-4 py-2 flex items-end" style={{ background: "#FAFAFA" }}>
+                    <span className="text-xs font-black uppercase tracking-widest"
                       style={{ color: "var(--text-muted)" }}>ทีม</span>
                   </div>
                   {/* Previous month header */}
-                  <div className="px-2 py-2 text-center" style={{ background: "#FAFAFA" }}>
-                    <div className="text-[9px] font-black uppercase tracking-wider mb-0.5"
+                  <div className="px-2 py-1.5 text-center" style={{ background: "#FAFAFA" }}>
+                    <div className="text-xs font-black uppercase tracking-wider mb-0.5"
                       style={{ color: "var(--text-muted)" }}>
                       {THAI_MONTHS_SHORT[pm - 1]} {py + 543}
                     </div>
                     <div className="grid grid-cols-2 gap-0.5">
-                      <span className="text-[8px] text-center" style={{ color: "var(--text-muted)" }}>ที่มี</span>
-                      <span className="text-[8px] text-center" style={{ color: "var(--accent)" }}>ใช้ไป</span>
+                      <span className="text-xs text-center" style={{ color: "var(--text-muted)" }}>ที่มี</span>
+                      <span className="text-xs text-center" style={{ color: "var(--accent)" }}>ใช้ไป</span>
                     </div>
                   </div>
                   {/* Current month header */}
-                  <div className="px-2 py-2 text-center"
+                  <div className="px-2 py-1.5 text-center"
                     style={{ background: "var(--accent)", borderLeft: "2px solid var(--accent)" }}>
-                    <div className="text-[9px] font-black uppercase tracking-wider mb-0.5 text-white/75">
+                    <div className="text-xs font-black uppercase tracking-wider mb-0.5 text-white/75">
                       {THAI_MONTHS_SHORT[month - 1]} {buddhist}
                     </div>
-                    <div className="text-[8px] text-white/90 font-semibold">เครดิตใหม่</div>
+                    <div className="text-xs text-white/90 font-semibold">เครดิตใหม่</div>
                   </div>
                 </div>
               </div>
@@ -323,17 +367,17 @@ export default function CreditDistributionPage() {
                 return (
                   <div key={group} className="grid border-b"
                     style={{
-                      gridTemplateColumns: "1fr 70px 70px",
+                      gridTemplateColumns: "1fr 110px 110px",
                       borderColor: "var(--border)",
                       background: gi % 2 === 0 ? "var(--bg-card)" : "#FEFEFE",
                     }}>
-                    <div className="px-4 py-2.5 flex items-center">
+                    <div className="px-4 py-1.5 flex items-center">
                       <span className="text-xs font-medium leading-snug" style={{ color: "var(--text-primary)" }}>
                         {group}
                       </span>
                     </div>
                     {/* Prev month: allocated | used */}
-                    <div className="px-1 py-2.5 grid grid-cols-2 gap-0.5 items-center">
+                    <div className="px-1 py-1.5 grid grid-cols-2 gap-0.5 items-center">
                       <span className="text-xs font-semibold text-center" style={{ color: "var(--text-secondary)" }}>
                         {prevA > 0 ? prevA.toFixed(2) : "—"}
                       </span>
@@ -343,7 +387,7 @@ export default function CreditDistributionPage() {
                       </span>
                     </div>
                     {/* Current month: new allocation */}
-                    <div className="px-2 py-2.5 flex items-center justify-center"
+                    <div className="px-2 py-1.5 flex items-center justify-center"
                       style={{ background: "var(--accent-light)", borderLeft: "2px solid var(--accent)" }}>
                       <span className="text-xs font-black" style={{ color: "var(--accent)" }}>
                         {newC > 0 ? newC.toFixed(2) : "—"}
@@ -354,13 +398,13 @@ export default function CreditDistributionPage() {
               })}
 
               {/* Summary totals */}
-              <div className="grid border-t" style={{ gridTemplateColumns: "1fr 70px 70px", borderColor: "var(--border)", background: "var(--bg-dark)" }}>
-                <div className="px-4 py-3 flex items-center">
+              <div className="grid border-t" style={{ gridTemplateColumns: "1fr 110px 110px", borderColor: "var(--border)", background: "var(--bg-dark)" }}>
+                <div className="px-4 py-2 flex items-center">
                   <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.5)" }}>
                     รวม
                   </span>
                 </div>
-                <div className="px-1 py-3 grid grid-cols-2 gap-0.5 items-center">
+                <div className="px-1 py-2 grid grid-cols-2 gap-0.5 items-center">
                   <span className="text-xs font-black text-center" style={{ color: "rgba(255,255,255,0.7)" }}>
                     {prevTotalCredits}
                   </span>
@@ -368,14 +412,14 @@ export default function CreditDistributionPage() {
                     {prevLoading ? "…" : Object.values(prevUsage).reduce((s, v) => Math.round((s + v.used) * 100) / 100, 0) || "—"}
                   </span>
                 </div>
-                <div className="px-2 py-3 flex items-center justify-center"
+                <div className="px-2 py-2 flex items-center justify-center"
                   style={{ background: "var(--accent)", borderLeft: "2px solid var(--accent)" }}>
                   <span className="font-black text-base text-white">{totalCredits}</span>
                 </div>
               </div>
 
               {/* Footer note */}
-              <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)", background: "#FAFAFA" }}>
+              <div className="px-4 py-2 border-t" style={{ borderColor: "var(--border)", background: "#FAFAFA" }}>
                 <p className="text-[10px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
                   <span className="font-semibold">ที่มี</span> = เครดิตจัดสรรเดือน{THAI_MONTHS_SHORT[pm - 1]} ·{" "}
                   <span className="font-semibold">ใช้ไป</span> = จากงานจริงใน Notion ·{" "}
