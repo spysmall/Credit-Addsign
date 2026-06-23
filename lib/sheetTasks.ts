@@ -15,22 +15,52 @@ function parseCSV(text: string): Record<string, string>[] {
 
 // Maps display team names / aliases to our summaryGroup keys
 const ALIAS: Record<string, string> = {
+  // MKT Performance
   "mkt performance":           "MKT Performance",
   "mkt perf":                  "MKT Performance",
+  "mkt-perf":                  "MKT Performance",
+  "mkt-performance":           "MKT Performance",
+
+  // MKT Campaign TH
   "mkt campaign th":           "MKT Campaign TH",
+  "mkt-th":                    "MKT Campaign TH",
+
+  // MKT Campaign SEA
   "mkt campaign sea":          "MKT Campaign SEA",
+  "mkt-sea":                   "MKT Campaign SEA",
+
+  // GP
   "gp":                        "GP",
   "gp(exe)":                   "GP",
+
+  // BD(CB)
   "bd(cb)":                    "BD(CB)",
+  "bd-cb":                     "BD(CB)",
+
+  // BD(HOF)
   "bd(hof)":                   "BD(HOF)",
+  "hof":                       "BD(HOF)",
+
+  // AGX
   "agx":                       "AGX",
+  "agx-gs":                    "AGX",
+  "agx-biz":                   "AGX",
+
+  // WR
   "wr":                        "WR",
   "wang ruay":                 "WR",
+  "bd-wangruay":               "WR",
+
+  // CRI, Aztek, Topfiar
   "cri, aztek, topfiar":       "CRI, Aztek, Topfiar",
   "cri":                       "CRI, Aztek, Topfiar",
+  "cdm":                       "CRI, Aztek, Topfiar",
+
+  // Director&Manager&Edit
   "director&manager&edit":     "Director&Manager&Edit",
   "director & manager & edit": "Director&Manager&Edit",
   "director":                  "Director&Manager&Edit",
+  "design":                    "Director&Manager&Edit",
 };
 
 function normalizeGroup(raw: string): string | null {
@@ -40,6 +70,72 @@ function normalizeGroup(raw: string): string | null {
 
 export interface TeamUsage {
   used: number;
+}
+
+/**
+ * Fetch credit usage from '[sum] All Task(in Notion)' tab.
+ * Aggregates by team name across all companies for a given month.
+ * Date format in sheet: M/D/YYYY (e.g. "7/1/2026")
+ */
+export async function fetchAllTaskUsage(
+  year: number,
+  month: number
+): Promise<Record<string, TeamUsage>> {
+  const tabName = encodeURIComponent("[sum] All Task(in Notion)");
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${tabName}`;
+  const res = await fetch(url, { cache: "no-store" });
+  const text = await res.text();
+
+  // RFC-4180 parser (handles quoted fields with embedded newlines)
+  const allRows: string[][] = [];
+  let row: string[] = [], cell = "", inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') { inQ = false; }
+      else { cell += ch; }
+    } else {
+      if (ch === '"') { inQ = true; }
+      else if (ch === ',') { row.push(cell); cell = ""; }
+      else if (ch === '\n') { row.push(cell); allRows.push(row); row = []; cell = ""; }
+      else if (ch !== '\r') { cell += ch; }
+    }
+  }
+  if (cell || row.length) { row.push(cell); allRows.push(row); }
+
+  const [headers, ...rows] = allRows;
+  if (!headers) return {};
+
+  // Detect columns by header name
+  const teamIdx   = headers.findIndex((h) => /ทีม/i.test(h));
+  const creditIdx = headers.findIndex((h) => /เครดิต|credit/i.test(h));
+  const dateIdx   = headers.findIndex((h) => /วันที่|date/i.test(h));
+  if (teamIdx < 0 || creditIdx < 0) return {};
+
+  const result: Record<string, TeamUsage> = {};
+
+  for (const r of rows) {
+    // Filter by month if date column exists (format: M/D/YYYY or MM/DD/YYYY)
+    if (dateIdx >= 0) {
+      const dateStr = r[dateIdx] ?? "";
+      const parts = dateStr.split("/");
+      if (parts.length < 3) continue;
+      const rowMonth = parseInt(parts[0], 10);
+      const rowYear  = parseInt(parts[2], 10);
+      if (rowYear !== year || rowMonth !== month) continue;
+    }
+
+    const rawTeam = (r[teamIdx] ?? "").trim();
+    const group   = normalizeGroup(rawTeam) ?? rawTeam; // fallback: use name as-is
+    if (!group) continue;
+
+    const credits = parseFloat(r[creditIdx] ?? "0") || 0;
+    if (!result[group]) result[group] = { used: 0 };
+    result[group].used = Math.round((result[group].used + credits) * 100) / 100;
+  }
+
+  return result;
 }
 
 export async function fetchTaskUsage(

@@ -10,10 +10,11 @@ import {
   loadDistConfig, saveDistConfig,
   totalPct, computeSummaryCredits, getSummaryGroups,
 } from "@/lib/distribution";
-import { fetchTaskUsage, TeamUsage } from "@/lib/sheetTasks";
-import { fetchDistFromSheet, saveDistToSheet, flattenConfig } from "@/lib/sheetDistribution";
+import { fetchAllTaskUsage, TeamUsage } from "@/lib/sheetTasks";
+import { fetchDistFromSheet, saveDistToSheet, flattenConfig, fetchNoteFromSheet, saveNoteToSheet } from "@/lib/sheetDistribution";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+const notesKey = (y: number, m: number) => `credit-notes-v1-${y}-${m}`;
 
 function prevYM(year: number, month: number) {
   return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
@@ -42,9 +43,40 @@ export default function CreditDistributionPage() {
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // notes
+  const [notes, setNotes] = useState("");
+  const [noteSyncStatus, setNoteSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // previous month sheet data
   const [prevUsage, setPrevUsage]     = useState<Record<string, TeamUsage>>({});
   const [prevLoading, setPrevLoading] = useState(false);
+
+  // Load notes: localStorage first, sheet wins when available
+  const loadNotes = useCallback((y: number, m: number) => {
+    const local = localStorage.getItem(notesKey(y, m)) ?? "";
+    setNotes(local);
+    setNoteSyncStatus("idle");
+    fetchNoteFromSheet(y, m).then((sheetNote) => {
+      if (sheetNote !== null) {
+        setNotes(sheetNote);
+        localStorage.setItem(notesKey(y, m), sheetNote);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    loadNotes(year, month);
+  }, [year, month, loadNotes]);
+
+  // Re-fetch notes when tab becomes visible (to get latest from sheet)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadNotes(year, month);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [year, month, loadNotes]);
 
   // Load config: localStorage first, then merge from sheet
   useEffect(() => {
@@ -76,7 +108,7 @@ export default function CreditDistributionPage() {
     const { year: py, month: pm } = prevYM(year, month);
     setPrevLoading(true);
     setPrevUsage({});
-    fetchTaskUsage(py, pm)
+    fetchAllTaskUsage(py, pm)
       .then(setPrevUsage)
       .catch(() => {})
       .finally(() => setPrevLoading(false));
@@ -133,22 +165,20 @@ export default function CreditDistributionPage() {
 
   const buddhist = year + 543;
 
+  // Past month = cannot edit
+  const now = new Date();
+  const isPastMonth = year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth() + 1);
+
   return (
     <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
 
         {/* ── Page Header ── */}
-        <div className="mb-3">
-          <div className="flex items-center justify-between gap-4 mb-2">
-            <div className="flex items-center gap-3 flex-wrap">
-              <p className="text-xs font-black uppercase tracking-[0.15em]"
-                style={{ color: "var(--accent)" }}>Credit Distribution</p>
-              <h1 className="text-2xl font-black leading-none tracking-tight"
-                style={{ color: "var(--text-primary)" }}>
-                {THAI_MONTHS_SHORT[month - 1].replace(".", "")}{" "}
-                <span style={{ color: "var(--accent)" }}>{buddhist}</span>
-              </h1>
-            </div>
+        <div className="mb-4 sm:mb-6">
+          {/* Top row: label + sync status + month selector */}
+          <div className="flex items-start justify-between gap-4 mb-3 sm:mb-4">
+            <p className="text-xs font-black uppercase tracking-[0.15em] pt-1"
+              style={{ color: "var(--accent)" }}>Credit Distribution</p>
             <div className="flex items-center gap-3">
               {syncStatus === "saving" && (
                 <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>⏳ กำลังบันทึก…</span>
@@ -162,6 +192,12 @@ export default function CreditDistributionPage() {
               <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
             </div>
           </div>
+          {/* Heading */}
+          <h1 className="text-3xl sm:text-4xl font-black leading-none tracking-tight"
+            style={{ color: "var(--text-primary)" }}>
+            {THAI_MONTHS_SHORT[month - 1]}{" "}
+            <span style={{ color: "var(--accent)" }}>{buddhist}</span>
+          </h1>
         </div>
 
         {/* ── Total bar ── */}
@@ -184,6 +220,64 @@ export default function CreditDistributionPage() {
               ✓ รวม 100% พอดี
             </div>
           )}
+        </div>
+
+        {/* ── Notes ── */}
+        <div className="mb-4 rounded-xl border overflow-hidden"
+          style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+          <div className="px-4 py-2 border-b flex items-center justify-between"
+            style={{ borderColor: "var(--border)", background: "var(--bg-page)" }}>
+            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>📝 โน้ต / หมายเหตุ</span>
+            <span className="text-[10px]" style={{
+              color: noteSyncStatus === "saving" ? "var(--text-muted)"
+                   : noteSyncStatus === "saved"  ? "#22C55E"
+                   : noteSyncStatus === "error"  ? "#EF4444"
+                   : "transparent"
+            }}>
+              {noteSyncStatus === "saving" && "⏳ กำลังบันทึก…"}
+              {noteSyncStatus === "saved"  && "✓ บันทึกแล้ว"}
+              {noteSyncStatus === "error"  && "⚠ บันทึกไม่สำเร็จ"}
+            </span>
+          </div>
+          <div className="relative">
+            <textarea
+              value={notes}
+              onChange={(e) => !isPastMonth && setNotes(e.target.value)}
+              readOnly={isPastMonth}
+              placeholder={isPastMonth ? "ไม่มีโน้ตบันทึกไว้สำหรับเดือนนี้" : "พิมพ์หรือวางโน้ตเพิ่มเติมที่ต้องการบันทึกไว้สำหรับเดือนนี้…"}
+              rows={3}
+              className="w-full resize-y px-4 py-3 text-sm outline-none"
+              style={{
+                background: isPastMonth ? "var(--bg-page)" : "var(--bg-card)",
+                color: isPastMonth ? "var(--text-secondary)" : "var(--text-primary)",
+                fontFamily: "inherit",
+                minHeight: "96px",
+                cursor: isPastMonth ? "default" : "text",
+                paddingBottom: isPastMonth ? "12px" : "48px",
+                resize: isPastMonth ? "none" : "vertical",
+              }}
+            />
+            {!isPastMonth && (
+              <button
+                onClick={() => {
+                  if (noteTimer.current) clearTimeout(noteTimer.current);
+                  setNoteSyncStatus("saving");
+                  localStorage.setItem(notesKey(year, month), notes);
+                  saveNoteToSheet(year, month, notes)
+                    .then((ok) => setNoteSyncStatus(ok ? "saved" : "error"))
+                    .catch(() => setNoteSyncStatus("error"));
+                }}
+                className="absolute bottom-3 right-3 px-4 py-1.5 rounded-lg text-xs font-bold transition-all hover:opacity-90"
+                style={{ background: "var(--accent)", color: "#fff" }}>
+                บันทึก
+              </button>
+            )}
+            {isPastMonth && (
+              <div className="absolute bottom-2 right-3 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                🔒 เดือนที่ผ่านมา
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── Main layout ── */}
@@ -294,7 +388,7 @@ export default function CreditDistributionPage() {
                               </div>
                               {/* Coins */}
                               <div className="px-4 py-1 flex items-center justify-center" style={{ background: "var(--accent-light)" }}>
-                                <span className="font-black text-xs"
+                                <span className="font-black text-sm"
                                   style={{ color: "var(--accent)" }}>{coins}</span>
                               </div>
                             </div>
@@ -389,7 +483,7 @@ export default function CreditDistributionPage() {
                     {/* Current month: new allocation */}
                     <div className="px-2 py-1.5 flex items-center justify-center"
                       style={{ background: "var(--accent-light)", borderLeft: "2px solid var(--accent)" }}>
-                      <span className="text-xs font-black" style={{ color: "var(--accent)" }}>
+                      <span className="text-sm font-black" style={{ color: "var(--accent)" }}>
                         {newC > 0 ? newC.toFixed(2) : "—"}
                       </span>
                     </div>

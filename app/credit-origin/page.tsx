@@ -47,7 +47,7 @@ export default function CreditOriginPage() {
           {/* Heading */}
           <h1 className="text-3xl sm:text-4xl font-black leading-none tracking-tight"
             style={{ color: "var(--text-primary)" }}>
-            {THAI_MONTHS_SHORT[month - 1].replace(".", "")}{" "}
+            {THAI_MONTHS_SHORT[month - 1]}{" "}
             <span style={{ color: "var(--accent)" }}>{buddhist}</span>
           </h1>
           <p className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>

@@ -16,7 +16,8 @@
  *  D: updated_at (ISO timestamp)
  */
 
-var SHEET_NAME = "Credit Distribution";
+var SHEET_NAME      = "Credit Distribution";
+var NOTE_SHEET_NAME = "Note Plan";
 
 function getSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -28,41 +29,78 @@ function getSheet() {
   return sheet;
 }
 
-// GET ?month=2026-7 → [{team_id, pct}, ...]
-function doGet(e) {
-  var month = (e.parameter && e.parameter.month) ? e.parameter.month : "";
-  var sheet = getSheet();
-  var data = sheet.getDataRange().getValues();
-  var result = [];
+function getNoteSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(NOTE_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(NOTE_SHEET_NAME);
+    sheet.appendRow(["month", "note", "updated_at"]);
+  }
+  return sheet;
+}
 
+// GET ?month=2026-7              → [{team_id, pct}, ...]
+// GET ?action=getNote&month=...  → {note: "..."}
+function doGet(e) {
+  var params = e.parameter || {};
+  var month  = params.month || "";
+  var action = params.action || "";
+
+  if (action === "getNote") {
+    var ns   = getNoteSheet();
+    var nd   = ns.getDataRange().getValues();
+    var note = "";
+    for (var i = 1; i < nd.length; i++) {
+      if (String(nd[i][0]) === month) { note = String(nd[i][1]); } // no break → last row wins
+    }
+    return ContentService
+      .createTextOutput(JSON.stringify({ note: note }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Default: distribution rows
+  var sheet  = getSheet();
+  var data   = sheet.getDataRange().getValues();
+  var result = [];
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]) === month) {
       result.push({ team_id: String(data[i][1]), pct: Number(data[i][2]) });
     }
   }
-
   return ContentService
     .createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// POST body: { month: "2026-7", teams: [{id, pct}, ...] }
+// POST body: { month, teams }           → save distribution %
+// POST body: { action:"saveNote", month, note } → save note
 function doPost(e) {
   var body = JSON.parse(e.postData.contents);
-  var month = body.month;
-  var teams = body.teams;
-  var sheet = getSheet();
-  var data = sheet.getDataRange().getValues();
 
-  // Delete existing rows for this month (bottom to top)
-  for (var i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][0]) === month) {
-      sheet.deleteRow(i + 1);
+  if (body.action === "saveNote") {
+    var ns   = getNoteSheet();
+    var nd   = ns.getDataRange().getValues();
+    var now  = new Date().toISOString();
+    // Delete existing row for this month
+    for (var i = nd.length - 1; i >= 1; i--) {
+      if (String(nd[i][0]) === body.month) { ns.deleteRow(i + 1); }
     }
+    ns.appendRow([body.month, body.note || "", now]);
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Append updated rows
-  var now = new Date().toISOString();
+  // Default: save distribution %
+  var month  = body.month;
+  var teams  = body.teams;
+  var sheet  = getSheet();
+  var data   = sheet.getDataRange().getValues();
+  var now    = new Date().toISOString();
+
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][0]) === month) { sheet.deleteRow(i + 1); }
+  }
   for (var j = 0; j < teams.length; j++) {
     sheet.appendRow([month, teams[j].id, teams[j].pct, now]);
   }
