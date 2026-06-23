@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/credit-origin", label: "Information" },
   { href: "/credit-assign", label: "Credit Distribution" },
-  { href: "/summary", label: "สรุปภาพรวม", disabled: true },
+  { href: "/summary", label: "Summary" },
 ];
 
 export default function Navbar() {
