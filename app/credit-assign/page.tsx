@@ -426,7 +426,7 @@ export default function CreditDistributionPage() {
 
               {/* Panel header */}
               <div className="border-b" style={{ borderColor: "var(--border)" }}>
-                <div className="grid" style={{ gridTemplateColumns: "1fr 110px 110px" }}>
+                <div className="grid" style={{ gridTemplateColumns: "1fr 121px 110px" }}>
                   <div className="px-4 py-2 flex items-end" style={{ background: "#FAFAFA" }}>
                     <span className="text-xs font-black uppercase tracking-widest"
                       style={{ color: "var(--text-muted)" }}>ทีม</span>
@@ -461,7 +461,7 @@ export default function CreditDistributionPage() {
                 return (
                   <div key={group} className="grid border-b"
                     style={{
-                      gridTemplateColumns: "1fr 110px 110px",
+                      gridTemplateColumns: "1fr 121px 110px",
                       borderColor: "var(--border)",
                       background: gi % 2 === 0 ? "var(--bg-card)" : "#FEFEFE",
                     }}>
@@ -492,7 +492,7 @@ export default function CreditDistributionPage() {
               })}
 
               {/* Summary totals */}
-              <div className="grid border-t" style={{ gridTemplateColumns: "1fr 110px 110px", borderColor: "var(--border)", background: "var(--bg-dark)" }}>
+              <div className="grid border-t" style={{ gridTemplateColumns: "1fr 121px 110px", borderColor: "var(--border)", background: "var(--bg-dark)" }}>
                 <div className="px-4 py-2 flex items-center">
                   <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.5)" }}>
                     รวม
