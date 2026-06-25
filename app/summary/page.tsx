@@ -121,8 +121,8 @@ export default function SummaryPage() {
               color: "var(--text-muted)",
             }}>
             <span>ทีม</span>
-            <span className="text-right">{THAI_MONTHS_SHORT[month - 1]} {buddhist}<br/>เครดิตใหม่</span>
             <span className="text-right">{THAI_MONTHS_SHORT[pm - 1]} {prevBuddhist}<br/>เครดิตก่อน</span>
+            <span className="text-right">{THAI_MONTHS_SHORT[month - 1]} {buddhist}<br/>เครดิตใหม่</span>
             <span className="text-right">เปลี่ยนแปลง</span>
           </div>
 
@@ -140,11 +140,11 @@ export default function SummaryPage() {
                   borderBottom: i < groups.length - 1 ? "1px solid var(--border)" : "none",
                 }}>
                 <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{group}</span>
-                <span className="text-right font-black text-sm" style={{ color: "var(--accent)" }}>
-                  {curr > 0 ? curr.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}
-                </span>
                 <span className="text-right text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
                   {prev > 0 ? prev.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}
+                </span>
+                <span className="text-right font-black text-sm" style={{ color: "var(--accent)" }}>
+                  {curr > 0 ? curr.toLocaleString() : <span style={{ color: "var(--text-muted)" }}>—</span>}
                 </span>
                 <span className="text-right text-xs font-bold">
                   {chg !== null && prev > 0
@@ -163,8 +163,8 @@ export default function SummaryPage() {
               background: "var(--bg-dark)",
             }}>
             <span className="text-xs font-black uppercase tracking-widest text-white">รวม</span>
-            <span className="text-right font-black text-sm" style={{ color: "var(--accent)" }}>{currTotal.toLocaleString()}</span>
             <span className="text-right text-sm font-bold text-white">{prevTotal > 0 ? prevTotal.toLocaleString() : "—"}</span>
+            <span className="text-right font-black text-sm" style={{ color: "var(--accent)" }}>{currTotal.toLocaleString()}</span>
             <span className="text-right text-xs font-bold">
               {prevTotal > 0 && (() => {
                 const chg = pctChange(currTotal, prevTotal);
