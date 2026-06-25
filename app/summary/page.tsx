@@ -82,16 +82,16 @@ export default function SummaryPage() {
         {/* ── Summary Cards ── */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
           <div className="rounded-2xl p-4 border" style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
-            <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: "var(--text-muted)" }}>เครดิตรวมเดือนนี้</p>
-            <p className="text-2xl font-black" style={{ color: "var(--accent)" }}>{currTotal.toLocaleString()}</p>
-            <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>M Coin · {THAI_MONTHS_SHORT[month - 1]} {buddhist}</p>
-          </div>
-          <div className="rounded-2xl p-4 border" style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
             <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: "var(--text-muted)" }}>เครดิตรวมเดือนก่อน</p>
             <p className="text-2xl font-black" style={{ color: "var(--text-primary)" }}>
               {prevTotal > 0 ? prevTotal.toLocaleString() : "—"}
             </p>
             <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>M Coin · {THAI_MONTHS_SHORT[pm - 1]} {prevBuddhist}</p>
+          </div>
+          <div className="rounded-2xl p-4 border" style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
+            <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: "var(--text-muted)" }}>เครดิตรวมเดือนนี้</p>
+            <p className="text-2xl font-black" style={{ color: "var(--accent)" }}>{currTotal.toLocaleString()}</p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>M Coin · {THAI_MONTHS_SHORT[month - 1]} {buddhist}</p>
           </div>
           {prevTotal > 0 && (() => {
             const chg = pctChange(currTotal, prevTotal);
