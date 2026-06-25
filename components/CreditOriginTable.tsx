@@ -15,9 +15,11 @@ interface Props {
   workdayInfo: WorkdayInfo;
   year: number;
   month: number;
+  prevMonthCredits: number;
+  prevMonthLabel: string;
 }
 
-export default function CreditOriginTable({ workdayInfo, year, month }: Props) {
+export default function CreditOriginTable({ workdayInfo, year, month, prevMonthCredits, prevMonthLabel }: Props) {
   const [memberStates, setMemberStates] = useState<Record<string, MemberState>>(() => {
     const init: Record<string, MemberState> = {};
     TEAM_MEMBERS.forEach((m) => {
@@ -163,11 +165,12 @@ export default function CreditOriginTable({ workdayInfo, year, month }: Props) {
 
         {/* Total */}
         <div className="grid" style={{ gridTemplateColumns: "1fr 110px 110px 110px 100px", background: "var(--bg-dark)" }}>
-          <div className="px-5 py-4 col-span-3 flex items-center">
-            <span className="text-xs font-black uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.5)" }}>Total Working Hours</span>
+          <div className="px-5 py-4 col-span-3 flex items-center gap-3">
+            <span className="text-xs font-black uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.5)" }}>Total</span>
+            <span className="text-[10px] font-semibold" style={{ color: "rgba(255,255,255,0.35)" }}>เครดิตรวม {prevMonthLabel} →</span>
           </div>
           <div className="px-4 py-4 flex items-center justify-center">
-            <span className="font-black text-xl" style={{ color: "var(--accent)" }}>{totalHours}</span>
+            <span className="font-black text-xl" style={{ color: "var(--accent)" }}>{prevMonthCredits}</span>
           </div>
           <div className="px-4 py-4 flex items-center justify-center" style={{ background: "var(--accent)" }}>
             <span className="font-black text-2xl text-white">{totalCredits}</span>
@@ -263,10 +266,8 @@ export default function CreditOriginTable({ workdayInfo, year, month }: Props) {
         {/* Total */}
         <div className="px-4 py-4 flex items-center justify-between" style={{ background: "var(--bg-dark)" }}>
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest mb-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>Total</p>
-            <p className="font-black text-xl" style={{ color: "var(--accent)" }}>{totalHours}
-              <span className="text-sm font-semibold ml-1 opacity-60">hrs</span>
-            </p>
+            <p className="text-[10px] font-black uppercase tracking-widest mb-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>เครดิตรวม {prevMonthLabel}</p>
+            <p className="font-black text-xl" style={{ color: "var(--accent)" }}>{prevMonthCredits}</p>
           </div>
           <div className="text-right">
             <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>M Coin รวม</p>

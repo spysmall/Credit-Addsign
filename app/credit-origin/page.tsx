@@ -32,6 +32,16 @@ export default function CreditOriginPage() {
     return sum + hoursToCredits(hrs);
   }, 0);
 
+  // เครดิตรวมเดือนก่อนหน้า
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear  = month === 1 ? year - 1 : year;
+  const prevInfo  = getWorkdayInfo(prevYear, prevMonth);
+  const prevMonthCredits = activeMembers.reduce((sum, m) => {
+    const hrs = m.isLead ? (m.customHoursPerMonth ?? prevInfo.workingHours) : prevInfo.workingHours;
+    return sum + hoursToCredits(hrs);
+  }, 0);
+  const prevMonthLabel = `${THAI_MONTHS_SHORT[prevMonth - 1]} ${prevYear + 543}`;
+
   return (
     <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
@@ -79,7 +89,8 @@ export default function CreditOriginPage() {
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4 sm:gap-6 items-start">
 
           {/* Table */}
-          <CreditOriginTable key={`${year}-${month}`} workdayInfo={info} year={year} month={month} />
+          <CreditOriginTable key={`${year}-${month}`} workdayInfo={info} year={year} month={month}
+            prevMonthCredits={prevMonthCredits} prevMonthLabel={prevMonthLabel} />
 
           {/* Sidebar */}
           <aside className="space-y-4">
