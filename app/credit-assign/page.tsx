@@ -189,6 +189,19 @@ export default function CreditDistributionPage() {
               {syncStatus === "error" && (
                 <span className="text-xs font-medium" style={{ color: "#EF4444" }}>⚠ บันทึกไม่สำเร็จ</span>
               )}
+              {!isPastMonth && syncStatus === "idle" && (
+                <button
+                  onClick={() => {
+                    setSyncStatus("saving");
+                    saveDistToSheet(year, month, flattenConfig(config))
+                      .then((ok) => setSyncStatus(ok ? "saved" : "error"))
+                      .catch(() => setSyncStatus("error"));
+                  }}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all hover:opacity-80"
+                  style={{ borderColor: "var(--border)", color: "var(--text-muted)", background: "var(--bg-card)" }}>
+                  ↑ Sync to Sheet
+                </button>
+              )}
               <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
             </div>
           </div>
