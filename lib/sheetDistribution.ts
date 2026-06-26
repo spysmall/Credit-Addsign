@@ -39,20 +39,21 @@ export interface SheetDistRow {
   pct: number;
 }
 
-/** Fetch pct values for a given month from the sheet. Returns null if unavailable. */
+/** Fetch pct values for a given month from the sheet via public CSV (no CORS issues). */
 export async function fetchDistFromSheet(
   year: number,
   month: number
 ): Promise<Record<string, number> | null> {
-  if (!APPS_SCRIPT_URL) return null;
+  const monthKey = `${year}-${month}`;
   try {
-    const res = await fetch(
-      `${APPS_SCRIPT_URL}?month=${year}-${month}`,
-      { cache: "no-store" }
-    );
-    const rows: SheetDistRow[] = await res.json();
-    if (!Array.isArray(rows) || rows.length === 0) return null;
-    return Object.fromEntries(rows.map((r) => [r.team_id, r.pct]));
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Credit%20Distribution`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    const rows = parseCSVRobust(await res.text());
+    // Each row: [month, team_id, pct, updated_at]
+    const matched = rows.filter((r) => r[0] === monthKey);
+    if (matched.length === 0) return null;
+    return Object.fromEntries(matched.map((r) => [r[1], parseFloat(r[2]) || 0]));
   } catch {
     return null;
   }
