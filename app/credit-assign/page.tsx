@@ -86,14 +86,7 @@ export default function CreditDistributionPage() {
     setSyncStatus("idle");
 
     fetchDistFromSheet(year, month).then((sheetMap) => {
-      if (!sheetMap) {
-        // Sheet has no data for this month → auto-push local config up
-        const localConfig = loadDistConfig(year, month);
-        saveDistToSheet(year, month, flattenConfig(localConfig))
-          .then((ok) => setSyncStatus(ok ? "saved" : "idle"))
-          .catch(() => {});
-        return;
-      }
+      if (!sheetMap) return;
       setConfig((prev) => {
         const merged: DistConfig = prev.map((p) => ({
           ...p,
