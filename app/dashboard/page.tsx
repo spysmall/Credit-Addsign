@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import MonthSelector from "@/components/MonthSelector";
 import { loadDistConfig, DistConfig } from "@/lib/distribution";
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
@@ -19,18 +19,96 @@ function teamTotalCredits(y: number, m: number): number {
   }, 0);
 }
 
-const TEAM_ICONS: Record<string, string> = {
-  "MKT Performance":       "📊",
-  "MKT Campaign TH":       "🇹🇭",
-  "MKT Campaign SEA":      "🌏",
-  "GP":                    "🎮",
-  "GP(EXE)":               "🎮",
-  "BD(CB)":                "💼",
-  "BD(HOF)":               "🏆",
-  "BD":                    "🎯",
-  "AGX":                   "⚡",
-  "CRI, Aztek, Topfiar":   "🎨",
-  "Director&Manager&Edit": "🎬",
+function IconChart() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path d="M2 11a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-5ZM8 7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V7ZM14 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V4Z"/>
+    </svg>
+  );
+}
+function IconFlag() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path d="M3.5 2.75a.75.75 0 0 0-1.5 0v14.5a.75.75 0 0 0 1.5 0v-4.392l1.657-.348a6.449 6.449 0 0 1 4.271.572 7.948 7.948 0 0 0 5.965.524l2.078-.64A.75.75 0 0 0 18 12.25v-8.5a.75.75 0 0 0-.904-.734l-2.38.501a7.25 7.25 0 0 1-4.186-.363l-.502-.2a8.75 8.75 0 0 0-5.053-.439L3.5 3.16V2.75Z"/>
+    </svg>
+  );
+}
+function IconGlobe() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm-1.547-8.459c.21-.248.472-.543.795-.83.664-.592 1.57-1.175 2.752-1.175a3.25 3.25 0 0 1 3.25 3.25c0 1.307-.78 2.276-1.654 2.928-.873.652-1.95 1.036-2.846 1.036-.924 0-1.717-.427-2.25-.852l-.023-.018c.16-.38.258-.78.27-1.173a3.28 3.28 0 0 1-.294-.166ZM6.75 9.5a.75.75 0 0 0 0 1.5h.5a.75.75 0 0 0 0-1.5h-.5Z" clipRule="evenodd"/>
+    </svg>
+  );
+}
+function IconGamepad() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3A1.5 1.5 0 0 1 13 3.5V4h-1.5v-.5h-3V4H7v-.5ZM3 7.5A1.5 1.5 0 0 1 4.5 6h11A1.5 1.5 0 0 1 17 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5v-7ZM8 9a.75.75 0 0 0-.75.75v.5h-.5a.75.75 0 0 0 0 1.5h.5v.5a.75.75 0 0 0 1.5 0v-.5h.5a.75.75 0 0 0 0-1.5h-.5v-.5A.75.75 0 0 0 8 9Zm4.25 1.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm1.5 1.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"/>
+    </svg>
+  );
+}
+function IconBriefcase() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path fillRule="evenodd" d="M6 3.75A2.75 2.75 0 0 1 8.75 1h2.5A2.75 2.75 0 0 1 14 3.75V4h1.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H6v-.25Zm2.5-1.25A1.25 1.25 0 0 0 7.25 3.75V4h5.5v-.25A1.25 1.25 0 0 0 11.5 2.5h-3Z" clipRule="evenodd"/>
+    </svg>
+  );
+}
+function IconTrophy() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path fillRule="evenodd" d="M10 1c-1.418 0-2.75.228-3.994.648-.298.102-.526.314-.665.575-.14.26-.19.56-.12.852l.084.346a6.003 6.003 0 0 0 4.695 4.485v1.207a6.01 6.01 0 0 0-1.253-.131 6.01 6.01 0 0 0-2.747.664.75.75 0 0 0-.255.255 6.01 6.01 0 0 0-.664 2.747v.5c0 1.07.868 1.938 1.938 1.938h5.961A1.938 1.938 0 0 0 15.72 12.4v-.5a6.01 6.01 0 0 0-.664-2.747.75.75 0 0 0-.255-.255 6.01 6.01 0 0 0-2.747-.664c-.433 0-.851.046-1.254.131V7.56A6.003 6.003 0 0 0 15.496 3.42l.084-.346c.07-.292.02-.591-.12-.852a1.25 1.25 0 0 0-.665-.575A11.25 11.25 0 0 0 10 1ZM8.5 15.062V17.5H7.75a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5H11.5v-2.438a3.44 3.44 0 0 1-3 0Z" clipRule="evenodd"/>
+    </svg>
+  );
+}
+function IconTarget() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm0-2a6 6 0 1 1 0-12 6 6 0 0 1 0 12Zm0-2a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-2a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z" clipRule="evenodd"/>
+    </svg>
+  );
+}
+function IconBolt() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path d="M11.983 1.907a.75.75 0 0 0-1.292-.657l-8.5 9.5A.75.75 0 0 0 2.75 12h6.572l-1.305 6.093a.75.75 0 0 0 1.292.657l8.5-9.5A.75.75 0 0 0 17.25 8h-6.572l1.305-6.093Z"/>
+    </svg>
+  );
+}
+function IconPalette() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path fillRule="evenodd" d="M10 18c4.418 0 8-3.134 8-7s-3.582-7-8-7-8 3.134-8 7c0 1.76.743 3.37 1.97 4.6-.097 1.016-.417 2.13-.771 2.966-.079.186.074.394.273.362 2.256-.37 3.597-.938 4.18-1.234A9.06 9.06 0 0 0 10 18Zm-1.5-9.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM8 13a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm6.5-4.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" clipRule="evenodd"/>
+    </svg>
+  );
+}
+function IconFilm() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path d="M3.25 3A2.25 2.25 0 0 0 1 5.25v9.5A2.25 2.25 0 0 0 3.25 17h13.5A2.25 2.25 0 0 0 19 14.75v-9.5A2.25 2.25 0 0 0 16.75 3H3.25ZM2.5 9h2v2h-2V9Zm0 3.5h2v2a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75v-2Zm0-7v-.75c0-.414.336-.75.75-.75h.5c.414 0 .75.336.75.75V5.5h-2Zm13.5 0h2v-.75a.75.75 0 0 0-.75-.75h-.5a.75.75 0 0 0-.75.75V5.5Zm2 3.5h-2v2h2V9Zm0 3.5h-2v2c0 .414.336.75.75.75h.5c.414 0 .75-.336.75-.75v-2ZM6.5 6h7v8h-7V6Z"/>
+    </svg>
+  );
+}
+function IconTag() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+      <path fillRule="evenodd" d="M5.5 3A2.5 2.5 0 0 0 3 5.5v2.879a2.5 2.5 0 0 0 .732 1.767l6.5 6.5a2.5 2.5 0 0 0 3.536 0l2.878-2.878a2.5 2.5 0 0 0 0-3.536l-6.5-6.5A2.5 2.5 0 0 0 8.38 3H5.5ZM6 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd"/>
+    </svg>
+  );
+}
+
+const TEAM_ICONS: Record<string, React.ReactNode> = {
+  "MKT Performance":       <IconChart />,
+  "MKT Campaign TH":       <IconFlag />,
+  "MKT Campaign SEA":      <IconGlobe />,
+  "GP":                    <IconGamepad />,
+  "GP(EXE)":               <IconGamepad />,
+  "BD(CB)":                <IconBriefcase />,
+  "BD(HOF)":               <IconTrophy />,
+  "BD":                    <IconTarget />,
+  "AGX":                   <IconBolt />,
+  "CRI, Aztek, Topfiar":   <IconPalette />,
+  "Director&Manager&Edit": <IconFilm />,
 };
 
 export default function DashboardPage() {
@@ -186,7 +264,7 @@ export default function DashboardPage() {
                             const isEmpty   = used > 0 && credit > 0 && remaining === 0;
                             const isLow     = credit > 0 && barWidth <= 25 && used > 0;
                             const hasUsage  = used > 0;
-                            const icon      = TEAM_ICONS[team.name] ?? "🏷️";
+                            const icon      = TEAM_ICONS[team.name] ?? <IconTag />;
 
                             return (
                               <div key={team.id}
