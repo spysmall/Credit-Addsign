@@ -197,23 +197,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── Notes ── */}
-        {notes && (
-          <div className="rounded-2xl border overflow-hidden"
-            style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
-            <div className="px-4 py-2.5 border-b flex items-center gap-2"
-              style={{ borderColor: "var(--border)", background: "var(--bg-page)" }}>
-              <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-                📝 หมายเหตุประจำเดือน
-              </span>
-            </div>
-            <div className="px-4 py-3">
-              <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: "var(--text-primary)" }}>
-                {notes}
-              </p>
-            </div>
-          </div>
-        )}
 
         {/* Footer */}
         <p className="text-[10px] mt-6 text-center" style={{ color: "var(--text-muted)" }}>
