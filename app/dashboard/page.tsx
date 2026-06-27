@@ -173,24 +173,34 @@ export default function DashboardPage() {
 
                   {/* Credit amount + remaining */}
                   <div className="mt-auto">
-                    {/* Allocated */}
-                    <div className="flex items-end gap-1 mb-1">
-                      <span className="text-2xl sm:text-3xl font-black leading-none"
-                        style={{ color: credit > 0 ? "var(--accent)" : "var(--text-muted)" }}>
-                        {credit > 0 ? credit.toLocaleString() : "—"}
-                      </span>
-                      {credit > 0 && (
-                        <span className="text-xs font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M Coin</span>
-                      )}
-                    </div>
-
-                    {/* Used / remaining label */}
-                    {hasUsage && credit > 0 && (
-                      <p className="text-[10px] mb-2 font-medium" style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--text-muted)" }}>
-                        {isEmpty
-                          ? "ใช้ครบแล้ว"
-                          : `คงเหลือ ${remaining.toLocaleString()} · ใช้ ${used.toLocaleString()}`}
-                      </p>
+                    {/* Remaining (prominent) or allocated if no usage data */}
+                    {hasUsage && credit > 0 ? (
+                      <>
+                        <p className="text-[9px] font-black uppercase tracking-widest mb-0.5"
+                          style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--text-muted)" }}>
+                          {isEmpty ? "ใช้ครบแล้ว" : "คงเหลือ"}
+                        </p>
+                        <div className="flex items-end gap-1 mb-0.5">
+                          <span className="text-2xl sm:text-3xl font-black leading-none"
+                            style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--accent)" }}>
+                            {isEmpty ? "0" : remaining.toLocaleString()}
+                          </span>
+                          <span className="text-xs font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M Coin</span>
+                        </div>
+                        <p className="text-[10px] mb-2" style={{ color: "var(--text-muted)" }}>
+                          จัดสรร {credit.toLocaleString()} · ใช้ {used.toLocaleString()}
+                        </p>
+                      </>
+                    ) : (
+                      <div className="flex items-end gap-1 mb-2">
+                        <span className="text-2xl sm:text-3xl font-black leading-none"
+                          style={{ color: credit > 0 ? "var(--accent)" : "var(--text-muted)" }}>
+                          {credit > 0 ? credit.toLocaleString() : "—"}
+                        </span>
+                        {credit > 0 && (
+                          <span className="text-xs font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M Coin</span>
+                        )}
+                      </div>
                     )}
 
                     {/* Progress bar — orange = remaining, empty = used */}
