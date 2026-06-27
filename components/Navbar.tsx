@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV_ITEMS: { href: string; label: string; disabled?: boolean }[] = [
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/credit-origin", label: "Information" },
   { href: "/credit-assign", label: "Credit Distribution" },
   { href: "/summary", label: "Summary" },
