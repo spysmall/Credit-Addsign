@@ -478,10 +478,16 @@ export default function CreditDistributionPage() {
                       borderColor: "var(--border)",
                       background: gi % 2 === 0 ? "var(--bg-card)" : "#FEFEFE",
                     }}>
-                    <div className="px-4 py-1.5 flex items-center">
+                    <div className="px-4 py-1.5 flex items-center gap-1.5">
                       <span className="text-xs font-medium leading-snug" style={{ color: "var(--text-primary)" }}>
                         {group}
                       </span>
+                      {(prevUsage[group]?.count ?? 0) > 0 && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full shrink-0"
+                          style={{ background: "var(--accent-light)", color: "var(--accent)" }}>
+                          {prevUsage[group]!.count} ชิ้น
+                        </span>
+                      )}
                     </div>
                     {/* Prev month: allocated | used */}
                     <div className="px-1 py-1.5 grid grid-cols-2 gap-0.5 items-center">
