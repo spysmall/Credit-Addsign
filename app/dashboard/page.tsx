@@ -151,7 +151,7 @@ export default function DashboardPage() {
               return (
                 <div key={group}
                   className="rounded-2xl border p-4 sm:p-5 flex flex-col gap-3 transition-all hover:shadow-md"
-                  style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
+                  style={{ background: "var(--bg-card)", borderColor: "var(--border)", opacity: isEmpty ? 0.5 : 1 }}>
 
                   {/* Icon + % badge */}
                   <div className="flex items-start justify-between">
