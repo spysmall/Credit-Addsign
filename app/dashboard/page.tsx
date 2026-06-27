@@ -19,14 +19,18 @@ function teamTotalCredits(y: number, m: number): number {
   }, 0);
 }
 
-const COMPANY_ICONS: Record<string, string> = {
-  "CB":                     "💎",
-  "EXE":                    "⚙️",
-  "HOF":                    "🏆",
-  "AGX,iHAVEFiLM":          "⚡",
-  "Wang Ruay":               "🎯",
-  "CRI, Aztek, Topfiar":    "🎨",
-  "Director&Manager&Edit":  "🎬",
+const TEAM_ICONS: Record<string, string> = {
+  "MKT Performance":       "📊",
+  "MKT Campaign TH":       "🇹🇭",
+  "MKT Campaign SEA":      "🌏",
+  "GP":                    "🎮",
+  "GP(EXE)":               "🎮",
+  "BD(CB)":                "💼",
+  "BD(HOF)":               "🏆",
+  "BD":                    "🎯",
+  "AGX":                   "⚡",
+  "CRI, Aztek, Topfiar":   "🎨",
+  "Director&Manager&Edit": "🎬",
 };
 
 export default function DashboardPage() {
@@ -134,128 +138,129 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col gap-6 mb-6">
+          <div className="flex flex-col gap-8 mb-6">
             {config.map((priority) => (
               <div key={priority.id}>
                 {/* Priority header */}
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="h-2 w-2 rounded-full" style={{ background: priority.bgColor }} />
-                  <p className="text-[10px] font-black uppercase tracking-widest"
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="h-2.5 w-2.5 rounded-full" style={{ background: priority.bgColor }} />
+                  <p className="text-[11px] font-black uppercase tracking-widest"
                     style={{ color: priority.bgColor }}>
                     {priority.name}
                   </p>
                   <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
                 </div>
 
-                {/* Company cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                {/* Companies */}
+                <div className="flex flex-col gap-5">
                   {priority.companies.map((company) => {
-                    const credit = Math.round(
+                    const companyCredit = Math.round(
                       company.teams.reduce((s, t) => s + (t.pct / 100) * total, 0) * 100
                     ) / 100;
-                    const pctSum = company.teams.reduce((s, t) => s + t.pct, 0);
-
-                    // Sum usage from unique summaryGroups in this company
-                    const seenGroups = new Set<string>();
-                    let companyUsed  = 0;
-                    let companyCount = 0;
-                    for (const t of company.teams) {
-                      if (!seenGroups.has(t.summaryGroup)) {
-                        seenGroups.add(t.summaryGroup);
-                        companyUsed  += usage[t.summaryGroup]?.used  ?? 0;
-                        companyCount += usage[t.summaryGroup]?.count ?? 0;
-                      }
-                    }
-                    // Only show usage if this company's summaryGroups are exclusive to it
-                    // (i.e., no other company in any priority shares the same summaryGroup)
-                    const allGroups = config.flatMap(p => p.companies.flatMap(c => c.teams.map(t => ({ cid: c.id, sg: t.summaryGroup }))));
-                    const isExclusive = [...seenGroups].every(sg =>
-                      allGroups.filter(x => x.sg === sg).every(x => x.cid === company.id)
-                    );
-
-                    const remaining = Math.max(0, credit - companyUsed);
-                    const barWidth  = credit > 0 ? Math.round((remaining / credit) * 100) : 0;
-                    const isEmpty   = isExclusive && companyUsed > 0 && credit > 0 && remaining === 0;
-                    const isLow     = isExclusive && credit > 0 && barWidth <= 25 && companyUsed > 0;
-                    const hasUsage  = isExclusive && companyUsed > 0;
-                    const icon      = COMPANY_ICONS[company.name] ?? "🏢";
+                    const companyPct = company.teams.reduce((s, t) => s + t.pct, 0);
 
                     return (
-                      <div key={company.id}
-                        className="rounded-2xl border p-4 sm:p-5 flex flex-col gap-2 transition-all hover:shadow-md"
-                        style={{ background: "var(--bg-card)", borderColor: "var(--border)", opacity: isEmpty ? 0.5 : 1 }}>
-
-                        {/* Icon + task count badge */}
-                        <div className="flex items-start justify-between">
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0"
-                            style={{ background: "var(--accent-light)" }}>
-                            {icon}
-                          </div>
-                          <span className="text-[10px] font-black rounded-full px-2 py-0.5"
-                            style={{ background: "var(--bg-page)", color: "var(--text-muted)" }}>
-                            {companyCount > 0 ? `${companyCount} ชิ้น` : "—"}
+                      <div key={company.id}>
+                        {/* Company subheader */}
+                        <div className="flex items-center gap-2 mb-2.5">
+                          <p className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded"
+                            style={{ background: priority.bgColor + "22", color: priority.bgColor }}>
+                            {company.name}
+                          </p>
+                          <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>
+                            {companyPct}% · {companyCredit.toLocaleString()} M Coin
                           </span>
+                          <div className="flex-1 h-px" style={{ background: "var(--border)", opacity: 0.5 }} />
                         </div>
 
-                        {/* Company name */}
-                        <p className="text-[10px] font-black uppercase tracking-widest leading-tight"
-                          style={{ color: "var(--text-muted)" }}>
-                          {company.name}
-                        </p>
+                        {/* Team cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-3">
+                          {company.teams.map((team) => {
+                            const credit    = Math.round((team.pct / 100) * total * 100) / 100;
+                            const used      = usage[team.summaryGroup]?.used  ?? 0;
+                            const taskCount = usage[team.summaryGroup]?.count ?? 0;
+                            const remaining = Math.max(0, credit - used);
+                            const barWidth  = credit > 0 ? Math.round((remaining / credit) * 100) : 0;
+                            const isEmpty   = used > 0 && credit > 0 && remaining === 0;
+                            const isLow     = credit > 0 && barWidth <= 25 && used > 0;
+                            const hasUsage  = used > 0;
+                            const icon      = TEAM_ICONS[team.name] ?? "🏷️";
 
-                        {/* Teams list */}
-                        <p className="text-[9px] leading-relaxed" style={{ color: "var(--text-muted)", opacity: 0.6 }}>
-                          {company.teams.map(t => t.name).join(" · ")}
-                        </p>
+                            return (
+                              <div key={team.id}
+                                className="rounded-xl border p-3 sm:p-4 flex flex-col gap-2 transition-all hover:shadow-md"
+                                style={{ background: "var(--bg-card)", borderColor: "var(--border)", opacity: isEmpty ? 0.5 : 1 }}>
 
-                        {/* Credit */}
-                        <div className="mt-auto">
-                          {hasUsage ? (
-                            <>
-                              <p className="text-[9px] font-black uppercase tracking-widest mb-0.5"
-                                style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--text-muted)" }}>
-                                {isEmpty ? "ใช้ครบแล้ว" : "คงเหลือ"}
-                              </p>
-                              <div className="flex items-end gap-1 mb-0.5">
-                                <span className="text-2xl sm:text-3xl font-black leading-none"
-                                  style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--accent)" }}>
-                                  {isEmpty ? "0" : remaining.toLocaleString()}
-                                </span>
-                                <span className="text-xs font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M Coin</span>
+                                {/* Icon + task badge */}
+                                <div className="flex items-start justify-between">
+                                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0"
+                                    style={{ background: "var(--accent-light)" }}>
+                                    {icon}
+                                  </div>
+                                  <span className="text-[9px] font-black rounded-full px-1.5 py-0.5"
+                                    style={{ background: "var(--bg-page)", color: "var(--text-muted)" }}>
+                                    {taskCount > 0 ? `${taskCount} ชิ้น` : "—"}
+                                  </span>
+                                </div>
+
+                                {/* Team name */}
+                                <p className="text-[9px] font-black uppercase tracking-widest leading-tight"
+                                  style={{ color: "var(--text-muted)" }}>
+                                  {team.name}
+                                </p>
+
+                                {/* Credit / remaining */}
+                                <div className="mt-auto">
+                                  {hasUsage ? (
+                                    <>
+                                      <p className="text-[8px] font-black uppercase tracking-widest mb-0.5"
+                                        style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--text-muted)" }}>
+                                        {isEmpty ? "ใช้ครบแล้ว" : "คงเหลือ"}
+                                      </p>
+                                      <div className="flex items-end gap-0.5 mb-0.5">
+                                        <span className="text-xl sm:text-2xl font-black leading-none"
+                                          style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--accent)" }}>
+                                          {isEmpty ? "0" : remaining.toLocaleString()}
+                                        </span>
+                                        <span className="text-[10px] font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M</span>
+                                      </div>
+                                      <p className="text-[9px] mb-1.5" style={{ color: "var(--text-muted)" }}>
+                                        ทั้งหมด {credit} · ใช้ {used}
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="text-[8px] font-black uppercase tracking-widest mb-0.5"
+                                        style={{ color: "var(--text-muted)" }}>เครดิต</p>
+                                      <div className="flex items-end gap-0.5 mb-1.5">
+                                        <span className="text-xl sm:text-2xl font-black leading-none"
+                                          style={{ color: credit > 0 ? "var(--accent)" : "var(--text-muted)" }}>
+                                          {credit > 0 ? credit.toLocaleString() : "—"}
+                                        </span>
+                                        {credit > 0 && (
+                                          <span className="text-[10px] font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M</span>
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
+
+                                  {/* Bar */}
+                                  <div className="h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                                    <div className="h-full rounded-full transition-all duration-700"
+                                      style={{
+                                        width: hasUsage ? `${barWidth}%` : "100%",
+                                        background: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : priority.bgColor,
+                                        opacity: credit > 0 ? 1 : 0,
+                                      }} />
+                                  </div>
+                                  <div className="flex justify-between mt-0.5">
+                                    <span className="text-[8px]" style={{ color: "var(--text-muted)" }}>0</span>
+                                    <span className="text-[8px] font-bold" style={{ color: priority.bgColor }}>{team.pct}%</span>
+                                  </div>
+                                </div>
                               </div>
-                              <p className="text-[10px] mb-2" style={{ color: "var(--text-muted)" }}>
-                                เครดิตทั้งหมด {credit.toLocaleString()} · ใช้ {companyUsed.toLocaleString()}
-                              </p>
-                            </>
-                          ) : (
-                            <>
-                              <p className="text-[9px] font-black uppercase tracking-widest mb-0.5"
-                                style={{ color: "var(--text-muted)" }}>เครดิตทั้งหมด</p>
-                              <div className="flex items-end gap-1 mb-2">
-                                <span className="text-2xl sm:text-3xl font-black leading-none"
-                                  style={{ color: credit > 0 ? "var(--accent)" : "var(--text-muted)" }}>
-                                  {credit > 0 ? credit.toLocaleString() : "—"}
-                                </span>
-                                {credit > 0 && (
-                                  <span className="text-xs font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M Coin</span>
-                                )}
-                              </div>
-                            </>
-                          )}
-
-                          {/* % badge + bar */}
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>0</span>
-                            <span className="text-[9px] font-bold" style={{ color: priority.bgColor }}>{pctSum}%</span>
-                          </div>
-                          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                            <div className="h-full rounded-full transition-all duration-700"
-                              style={{
-                                width: hasUsage ? `${barWidth}%` : "100%",
-                                background: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : priority.bgColor,
-                                opacity: credit > 0 ? 1 : 0,
-                              }} />
-                          </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
