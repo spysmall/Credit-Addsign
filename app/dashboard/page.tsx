@@ -188,7 +188,7 @@ export default function DashboardPage() {
                           <span className="text-xs font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M Coin</span>
                         </div>
                         <p className="text-[10px] mb-2" style={{ color: "var(--text-muted)" }}>
-                          จัดสรร {credit.toLocaleString()} · ใช้ {used.toLocaleString()}
+                          เครดิตทั้งหมด {credit.toLocaleString()} · ใช้ {used.toLocaleString()}
                         </p>
                       </>
                     ) : (
