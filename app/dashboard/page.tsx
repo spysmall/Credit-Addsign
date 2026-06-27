@@ -274,7 +274,7 @@ export default function DashboardPage() {
                                 {/* Icon + task badge */}
                                 <div className="flex items-start justify-between">
                                   <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0"
-                                    style={{ background: "var(--accent-light)" }}>
+                                    style={{ background: "var(--accent-light)", color: "var(--accent)" }}>
                                     {icon}
                                   </div>
                                   <span className="text-[9px] font-black rounded-full px-1.5 py-0.5"
