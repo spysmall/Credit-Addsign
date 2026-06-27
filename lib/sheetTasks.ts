@@ -185,7 +185,7 @@ export async function fetchTaskUsage(
       }
 
       const credits = parseFloat(row[creditCol] ?? "0") || 0;
-      if (!result[group]) result[group] = { used: 0 };
+      if (!result[group]) result[group] = { used: 0, count: 0 };
       result[group].used = Math.round((result[group].used + credits) * 100) / 100;
     }
     return result;
@@ -215,7 +215,7 @@ export async function fetchTaskUsage(
       const group = normalizeGroup(rawTeam);
       if (!group) continue;
       const credits = parseFloat(row[monthColKey] ?? "0") || 0;
-      if (!result[group]) result[group] = { used: 0 };
+      if (!result[group]) result[group] = { used: 0, count: 0 };
       result[group].used = Math.round((result[group].used + credits) * 100) / 100;
     }
     return result;
