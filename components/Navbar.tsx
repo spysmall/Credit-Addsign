@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
 
-const NAV_ITEMS: { href: string; label: string; disabled?: boolean }[] = [
-  { href: "/dashboard", label: "Dashboard" },
+const DROPDOWN_ITEMS = [
   { href: "/credit-origin", label: "Information" },
   { href: "/credit-assign", label: "Credit Distribution" },
   { href: "/summary", label: "Summary" },
@@ -12,6 +12,20 @@ const NAV_ITEMS: { href: string; label: string; disabled?: boolean }[] = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const dashboardActive  = pathname === "/dashboard";
+  const dropdownActive   = DROPDOWN_ITEMS.some((i) => pathname === i.href);
+  const activeLabel      = DROPDOWN_ITEMS.find((i) => pathname === i.href)?.label;
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   return (
     <header style={{ background: "var(--bg-dark)", borderBottom: "1px solid var(--border-dark)" }}
@@ -32,29 +46,54 @@ export default function Navbar() {
 
         {/* Nav */}
         <nav className="flex items-center gap-1">
-          {NAV_ITEMS.map((item) => {
-            const active = pathname === item.href;
-            if (item.disabled) {
-              return (
-                <span key={item.href}
-                  className="hidden sm:inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium"
-                  style={{ color: "#3A3A3A", cursor: "not-allowed" }}>
-                  {item.label}
-                </span>
-              );
-            }
-            return (
-              <Link key={item.href} href={item.href}
-                className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                style={active
-                  ? { background: "var(--accent)", color: "#fff" }
-                  : { color: "#888", background: "transparent" }}>
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
 
+          {/* Dashboard */}
+          <Link href="/dashboard"
+            className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+            style={dashboardActive
+              ? { background: "var(--accent)", color: "#fff" }
+              : { color: "#888", background: "transparent" }}>
+            Dashboard
+          </Link>
+
+          {/* Admin dropdown */}
+          <div className="relative" ref={ref}>
+            <button
+              onClick={() => setOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              style={dropdownActive
+                ? { background: "var(--accent)", color: "#fff" }
+                : { color: "#888", background: "transparent" }}>
+              {dropdownActive ? activeLabel : "Admin"}
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"
+                style={{ opacity: 0.7, transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
+                <path d="M1 3l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+
+            {open && (
+              <div className="absolute right-0 top-full mt-1.5 w-48 rounded-xl border shadow-lg overflow-hidden"
+                style={{ background: "var(--bg-card)", borderColor: "var(--border)", zIndex: 100 }}>
+                {DROPDOWN_ITEMS.map((item) => {
+                  const active = pathname === item.href;
+                  return (
+                    <Link key={item.href} href={item.href}
+                      onClick={() => setOpen(false)}
+                      className="flex items-center px-4 py-2.5 text-xs font-semibold transition-all"
+                      style={active
+                        ? { color: "var(--accent)", background: "var(--accent-light)" }
+                        : { color: "var(--text-secondary)", background: "transparent" }}>
+                      {active && <span className="w-1.5 h-1.5 rounded-full mr-2 shrink-0" style={{ background: "var(--accent)" }} />}
+                      {!active && <span className="w-1.5 h-1.5 mr-2 shrink-0" />}
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+        </nav>
       </div>
     </header>
   );
