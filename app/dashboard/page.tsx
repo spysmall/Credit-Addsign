@@ -255,7 +255,9 @@ export default function DashboardPage() {
                                   </div>
                                   <div className="flex justify-between mt-0.5">
                                     <span className="text-[8px]" style={{ color: "var(--text-muted)" }}>0</span>
-                                    <span className="text-[8px] font-bold" style={{ color: priority.bgColor }}>{team.pct}%</span>
+                                    <span className="text-[8px] font-bold" style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : priority.bgColor }}>
+                                      {hasUsage ? `${barWidth}%` : "100%"}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
