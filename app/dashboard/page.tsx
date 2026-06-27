@@ -6,7 +6,7 @@ import { loadDistConfig, computeSummaryCredits, getSummaryGroups } from "@/lib/d
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
 import { TEAM_MEMBERS } from "@/lib/team";
 import { fetchDistFromSheet } from "@/lib/sheetDistribution";
-import { fetchNoteFromSheet } from "@/lib/sheetDistribution";
+import { fetchAllTaskUsage, TeamUsage } from "@/lib/sheetTasks";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 
@@ -19,7 +19,6 @@ function teamTotalCredits(y: number, m: number): number {
   }, 0);
 }
 
-// Team icon mapping
 const TEAM_ICONS: Record<string, string> = {
   "MKT Performance":      "📊",
   "MKT Campaign TH":      "🇹🇭",
@@ -38,9 +37,9 @@ export default function DashboardPage() {
   const [year, setYear]   = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const [alloc, setAlloc]   = useState<Record<string, number>>({});
-  const [groups, setGroups] = useState<string[]>([]);
-  const [notes, setNotes]   = useState<string | null>(null);
+  const [alloc, setAlloc]     = useState<Record<string, number>>({});
+  const [groups, setGroups]   = useState<string[]>([]);
+  const [usage, setUsage]     = useState<Record<string, TeamUsage>>({});
   const [loading, setLoading] = useState(true);
 
   const buddhist = year + 543;
@@ -48,37 +47,31 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setLoading(true);
-    setNotes(null);
+    setUsage({});
 
-    // Fetch distribution from sheet first, fallback to localStorage
     fetchDistFromSheet(year, month).then((sheetMap) => {
       const config = loadDistConfig(year, month);
-      if (sheetMap) {
-        // Apply sheet values
-        const merged = config.map((p) => ({
-          ...p,
-          companies: p.companies.map((c) => ({
-            ...c,
-            teams: c.teams.map((t) =>
-              sheetMap[t.id] !== undefined ? { ...t, pct: sheetMap[t.id] } : t
-            ),
-          })),
-        }));
-        setAlloc(computeSummaryCredits(merged, total));
-        setGroups(getSummaryGroups(merged));
-      } else {
-        setAlloc(computeSummaryCredits(config, total));
-        setGroups(getSummaryGroups(config));
-      }
+      const merged = sheetMap
+        ? config.map((p) => ({
+            ...p,
+            companies: p.companies.map((c) => ({
+              ...c,
+              teams: c.teams.map((t) =>
+                sheetMap[t.id] !== undefined ? { ...t, pct: sheetMap[t.id] } : t
+              ),
+            })),
+          }))
+        : config;
+      setAlloc(computeSummaryCredits(merged, total));
+      setGroups(getSummaryGroups(merged));
       setLoading(false);
     });
 
-    fetchNoteFromSheet(year, month).then((note) => {
-      if (note) setNotes(note);
-    });
+    // Fetch actual usage for this month from task sheet
+    fetchAllTaskUsage(year, month).then(setUsage).catch(() => {});
   }, [year, month, total]);
 
-  const maxCredit = Math.max(...Object.values(alloc), 1);
+  const totalUsed = Object.values(usage).reduce((s, v) => s + v.used, 0);
 
   return (
     <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
@@ -116,6 +109,9 @@ export default function DashboardPage() {
             </div>
             <p className="text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.4)" }}>
               {THAI_MONTHS_SHORT[month - 1]} {buddhist} · {TEAM_MEMBERS.filter(m => !m.excludeFromCredits).length} คน
+              {totalUsed > 0 && (
+                <span style={{ color: "var(--accent)" }}> · ใช้ไปแล้ว {totalUsed.toLocaleString()} M Coin</span>
+              )}
             </p>
           </div>
           <div className="relative shrink-0 hidden sm:block">
@@ -141,10 +137,16 @@ export default function DashboardPage() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
             {groups.map((group) => {
-              const credit = alloc[group] ?? 0;
-              const pct = credit > 0 ? Math.round((credit / total) * 100) : 0;
-              const barWidth = credit > 0 ? Math.round((credit / maxCredit) * 100) : 0;
-              const icon = TEAM_ICONS[group] ?? "🏷️";
+              const credit  = alloc[group] ?? 0;
+              const used    = usage[group]?.used ?? 0;
+              const remaining = Math.max(0, credit - used);
+              const pct     = credit > 0 ? Math.round((credit / total) * 100) : 0;
+              // Bar = remaining / allocated (full = all remaining, empty = all used)
+              const barWidth = credit > 0 ? Math.round((remaining / credit) * 100) : 0;
+              const isLow   = credit > 0 && barWidth <= 25;
+              const isEmpty = credit > 0 && remaining === 0;
+              const icon    = TEAM_ICONS[group] ?? "🏷️";
+              const hasUsage = used > 0;
 
               return (
                 <div key={group}
@@ -164,32 +166,49 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Team name */}
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest leading-tight"
-                      style={{ color: "var(--text-muted)" }}>
-                      {group}
-                    </p>
-                  </div>
+                  <p className="text-[10px] font-black uppercase tracking-widest leading-tight"
+                    style={{ color: "var(--text-muted)" }}>
+                    {group}
+                  </p>
 
-                  {/* Credit amount */}
+                  {/* Credit amount + remaining */}
                   <div className="mt-auto">
-                    <div className="flex items-end gap-1 mb-2">
+                    {/* Allocated */}
+                    <div className="flex items-end gap-1 mb-1">
                       <span className="text-2xl sm:text-3xl font-black leading-none"
                         style={{ color: credit > 0 ? "var(--accent)" : "var(--text-muted)" }}>
                         {credit > 0 ? credit.toLocaleString() : "—"}
                       </span>
                       {credit > 0 && (
-                        <span className="text-xs font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>
-                          M Coin
-                        </span>
+                        <span className="text-xs font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M Coin</span>
                       )}
                     </div>
 
-                    {/* Progress bar */}
-                    <div className="h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                      <div className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${barWidth}%`, background: "var(--accent)", opacity: credit > 0 ? 1 : 0 }} />
+                    {/* Used / remaining label */}
+                    {hasUsage && credit > 0 && (
+                      <p className="text-[10px] mb-2 font-medium" style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--text-muted)" }}>
+                        {isEmpty
+                          ? "ใช้ครบแล้ว"
+                          : `คงเหลือ ${remaining.toLocaleString()} · ใช้ ${used.toLocaleString()}`}
+                      </p>
+                    )}
+
+                    {/* Progress bar — orange = remaining, empty = used */}
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                      <div className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: credit > 0 ? `${barWidth}%` : "0%",
+                          background: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--accent)",
+                          opacity: credit > 0 ? 1 : 0,
+                        }} />
                     </div>
+                    {/* Scale labels */}
+                    {credit > 0 && (
+                      <div className="flex justify-between mt-1">
+                        <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>0</span>
+                        <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>{credit}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -197,10 +216,9 @@ export default function DashboardPage() {
           </div>
         )}
 
-
         {/* Footer */}
-        <p className="text-[10px] mt-6 text-center" style={{ color: "var(--text-muted)" }}>
-          เครดิตคำนวณจาก % ที่จัดสรรใน Credit Distribution · อัปเดตอัตโนมัติ
+        <p className="text-[10px] mt-2 text-center" style={{ color: "var(--text-muted)" }}>
+          เครดิตคำนวณจาก % ที่จัดสรรใน Credit Distribution · ใช้ไปจาก [sum] All Task(in Notion)
         </p>
       </div>
     </div>
