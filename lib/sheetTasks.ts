@@ -70,6 +70,7 @@ function normalizeGroup(raw: string): string | null {
 
 export interface TeamUsage {
   used: number;
+  count: number;
 }
 
 /**
@@ -131,8 +132,9 @@ export async function fetchAllTaskUsage(
     if (!group) continue;
 
     const credits = parseFloat(r[creditIdx] ?? "0") || 0;
-    if (!result[group]) result[group] = { used: 0 };
-    result[group].used = Math.round((result[group].used + credits) * 100) / 100;
+    if (!result[group]) result[group] = { used: 0, count: 0 };
+    result[group].used  = Math.round((result[group].used + credits) * 100) / 100;
+    result[group].count += 1;
   }
 
   return result;

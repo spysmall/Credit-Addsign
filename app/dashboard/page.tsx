@@ -140,7 +140,7 @@ export default function DashboardPage() {
               const credit  = alloc[group] ?? 0;
               const used    = usage[group]?.used ?? 0;
               const remaining = Math.max(0, credit - used);
-              const pct     = credit > 0 ? Math.round((credit / total) * 100) : 0;
+              const taskCount = usage[group]?.count ?? 0;
               // Bar = remaining / allocated (full = all remaining, empty = all used)
               const barWidth = credit > 0 ? Math.round((remaining / credit) * 100) : 0;
               const isLow   = credit > 0 && barWidth <= 25;
@@ -161,7 +161,7 @@ export default function DashboardPage() {
                     </div>
                     <span className="text-[10px] font-black rounded-full px-2 py-0.5"
                       style={{ background: "var(--bg-page)", color: "var(--text-muted)" }}>
-                      {pct}%
+                      {taskCount > 0 ? `${taskCount} ชิ้น` : "—"}
                     </span>
                   </div>
 
