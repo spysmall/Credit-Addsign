@@ -109,12 +109,19 @@ export async function fetchAllTaskUsage(
   if (!headers) return {};
 
   // Detect columns by header name
-  const teamIdx   = headers.findIndex((h) => /ทีม/i.test(h));
-  const creditIdx = headers.findIndex((h) => /เครดิต|credit/i.test(h));
-  const dateIdx   = headers.findIndex((h) => /วันที่|date/i.test(h));
+  const teamIdx    = headers.findIndex((h) => /^ทีม$/i.test(h.trim()));
+  const creditIdx  = headers.findIndex((h) => /เครดิต|credit/i.test(h));
+  const dateIdx    = headers.findIndex((h) => /วันที่|date/i.test(h));
+  const companyIdx = headers.findIndex((h) => /บริษัท|company/i.test(h));
   if (teamIdx < 0 || creditIdx < 0) return {};
 
   const result: Record<string, TeamUsage> = {};
+
+  const bump = (key: string, credits: number) => {
+    if (!result[key]) result[key] = { used: 0, count: 0 };
+    result[key].used  = Math.round((result[key].used + credits) * 100) / 100;
+    result[key].count += 1;
+  };
 
   for (const r of rows) {
     // Filter by month if date column exists (format: M/D/YYYY or MM/DD/YYYY)
@@ -128,13 +135,17 @@ export async function fetchAllTaskUsage(
     }
 
     const rawTeam = (r[teamIdx] ?? "").trim();
-    const group   = normalizeGroup(rawTeam) ?? rawTeam; // fallback: use name as-is
+    const group   = normalizeGroup(rawTeam) ?? rawTeam;
     if (!group) continue;
 
-    const credits = parseFloat(r[creditIdx] ?? "0") || 0;
-    if (!result[group]) result[group] = { used: 0, count: 0 };
-    result[group].used  = Math.round((result[group].used + credits) * 100) / 100;
-    result[group].count += 1;
+    const credits    = parseFloat(r[creditIdx] ?? "0") || 0;
+    const rawCompany = companyIdx >= 0 ? (r[companyIdx] ?? "").trim().toUpperCase() : "";
+
+    // Aggregate key (total across all companies, used by credit-assign page)
+    bump(group, credits);
+
+    // Per-company key: "CB::GP" — used by dashboard for per-card counts
+    if (rawCompany) bump(`${rawCompany}::${group}`, credits);
   }
 
   return result;

@@ -177,8 +177,10 @@ export default function DashboardPage() {
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-3">
                           {company.teams.map((team) => {
                             const credit    = Math.round((team.pct / 100) * total * 100) / 100;
-                            const used      = usage[team.summaryGroup]?.used  ?? 0;
-                            const taskCount = usage[team.summaryGroup]?.count ?? 0;
+                            const ckey      = `${company.id.toUpperCase()}::${team.summaryGroup}`;
+                            const perCo     = usage[ckey];
+                            const used      = perCo?.used  ?? usage[team.summaryGroup]?.used  ?? 0;
+                            const taskCount = perCo?.count ?? usage[team.summaryGroup]?.count ?? 0;
                             const remaining = Math.max(0, credit - used);
                             const barWidth  = credit > 0 ? Math.round((remaining / credit) * 100) : 0;
                             const isEmpty   = used > 0 && credit > 0 && remaining === 0;
