@@ -93,18 +93,31 @@ function doPost(e) {
     var rs   = getRemainingSheet();
     var rd   = rs.getDataRange().getValues();
     var now3 = new Date().toISOString();
-    // Replace all existing rows for this month
-    for (var k = rd.length - 1; k >= 1; k--) {
-      if (String(rd[k][0]) === body.month) { rs.deleteRow(k + 1); }
-    }
     var rows = body.rows || [];
+
+    // Index existing rows by month|priority|company|team → sheet row number, so
+    // matching rows get updated in place instead of deleted + re-appended.
+    var index = {};
+    for (var i = 1; i < rd.length; i++) {
+      var existingKey = rd[i][0] + "|" + rd[i][1] + "|" + rd[i][2] + "|" + rd[i][3];
+      index[existingKey] = i + 1;
+    }
+
     for (var m = 0; m < rows.length; m++) {
       var r = rows[m];
-      rs.appendRow([
+      var key = body.month + "|" + r.priority + "|" + r.company + "|" + r.team;
+      var values = [
         body.month, r.priority, r.company, r.team,
         r.credit, r.used, r.remaining, r.remainingPct, r.taskCount, now3
-      ]);
+      ];
+      if (index[key]) {
+        rs.getRange(index[key], 1, 1, values.length).setValues([values]);
+      } else {
+        rs.appendRow(values);
+        index[key] = rs.getLastRow();
+      }
     }
+
     return ContentService
       .createTextOutput(JSON.stringify({ ok: true }))
       .setMimeType(ContentService.MimeType.JSON);
