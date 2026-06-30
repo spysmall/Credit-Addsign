@@ -47,7 +47,19 @@ function getRemainingSheet() {
     sheet = ss.insertSheet(REMAINING_SHEET_NAME);
     sheet.appendRow(["month", "priority", "company", "team", "credit", "used", "remaining", "remaining_pct", "task_count", "updated_at"]);
   }
+  // Force column A (month, e.g. "2026-7") to plain text so Sheets doesn't
+  // silently auto-convert it to a Date, which would break key matching below.
+  sheet.getRange("A:A").setNumberFormat("@");
   return sheet;
+}
+
+// Normalize a cell value to a "YYYY-M" string — handles the case where an
+// older row's month cell was auto-converted to a Date by Sheets.
+function monthKey_(v) {
+  if (Object.prototype.toString.call(v) === "[object Date]") {
+    return v.getFullYear() + "-" + (v.getMonth() + 1);
+  }
+  return String(v);
 }
 
 // GET ?month=2026-7              → [{team_id, pct}, ...]
@@ -99,13 +111,13 @@ function doPost(e) {
     // matching rows get updated in place instead of deleted + re-appended.
     var index = {};
     for (var i = 1; i < rd.length; i++) {
-      var existingKey = rd[i][0] + "|" + rd[i][1] + "|" + rd[i][2] + "|" + rd[i][3];
+      var existingKey = monthKey_(rd[i][0]) + "|" + rd[i][1] + "|" + rd[i][2] + "|" + rd[i][3];
       index[existingKey] = i + 1;
     }
 
     for (var m = 0; m < rows.length; m++) {
       var r = rows[m];
-      var key = body.month + "|" + r.priority + "|" + r.company + "|" + r.team;
+      var key = monthKey_(body.month) + "|" + r.priority + "|" + r.company + "|" + r.team;
       var values = [
         body.month, r.priority, r.company, r.team,
         r.credit, r.used, r.remaining, r.remainingPct, r.taskCount, now3
