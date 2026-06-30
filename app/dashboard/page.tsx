@@ -153,7 +153,11 @@ export default function DashboardPage() {
     fetchAllTaskUsage(year, month).then(setUsage).catch(() => {});
   }, [year, month, total]);
 
-  const totalUsed  = Object.values(usage).reduce((s, v) => s + v.used, 0);
+  // Only sum aggregate keys (no "::") — per-company keys like "CB::GP" are
+  // sub-totals of the same task, not extra usage, so including them would double-count.
+  const totalUsed  = Object.entries(usage)
+    .filter(([key]) => !key.includes("::"))
+    .reduce((s, [, v]) => s + v.used, 0);
   const totalAlloc = config.flatMap(p => p.companies).flatMap(c => c.teams)
     .reduce((s, t) => s + (t.pct / 100) * total, 0);
 

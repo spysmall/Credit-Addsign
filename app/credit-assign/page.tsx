@@ -524,7 +524,7 @@ export default function CreditDistributionPage() {
                     {prevTotalCredits}
                   </span>
                   <span className="text-xs font-black text-center" style={{ color: "var(--accent)" }}>
-                    {prevLoading ? "…" : Object.values(prevUsage).reduce((s, v) => Math.round((s + v.used) * 100) / 100, 0) || "—"}
+                    {prevLoading ? "…" : summaryGroups.reduce((s, g) => Math.round((s + (prevUsage[g]?.used ?? 0)) * 100) / 100, 0) || "—"}
                   </span>
                 </div>
                 <div className="px-2 py-2 flex items-center justify-center"
