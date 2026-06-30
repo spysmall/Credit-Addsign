@@ -4,7 +4,7 @@
  * in the public repo source. It only deters casual browsing.
  */
 
-const ADMIN_PIN = "159375";
+const ADMIN_PIN = "258456";
 const STORAGE_KEY = "admin-unlocked";
 
 export function isAdminUnlocked(): boolean {
