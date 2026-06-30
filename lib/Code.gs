@@ -16,8 +16,9 @@
  *  D: updated_at (ISO timestamp)
  */
 
-var SHEET_NAME      = "Credit Distribution";
-var NOTE_SHEET_NAME = "Note Plan";
+var SHEET_NAME           = "Credit Distribution";
+var NOTE_SHEET_NAME      = "Note Plan";
+var REMAINING_SHEET_NAME = "Remaining";
 
 function getSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -35,6 +36,16 @@ function getNoteSheet() {
   if (!sheet) {
     sheet = ss.insertSheet(NOTE_SHEET_NAME);
     sheet.appendRow(["month", "note", "updated_at"]);
+  }
+  return sheet;
+}
+
+function getRemainingSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(REMAINING_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(REMAINING_SHEET_NAME);
+    sheet.appendRow(["month", "priority", "company", "team", "credit", "used", "remaining", "remaining_pct", "task_count", "updated_at"]);
   }
   return sheet;
 }
@@ -74,8 +85,30 @@ function doGet(e) {
 
 // POST body: { month, teams }           → save distribution %
 // POST body: { action:"saveNote", month, note } → save note
+// POST body: { action:"saveRemaining", month, rows } → save remaining-credit snapshot
 function doPost(e) {
   var body = JSON.parse(e.postData.contents);
+
+  if (body.action === "saveRemaining") {
+    var rs   = getRemainingSheet();
+    var rd   = rs.getDataRange().getValues();
+    var now3 = new Date().toISOString();
+    // Replace all existing rows for this month
+    for (var k = rd.length - 1; k >= 1; k--) {
+      if (String(rd[k][0]) === body.month) { rs.deleteRow(k + 1); }
+    }
+    var rows = body.rows || [];
+    for (var m = 0; m < rows.length; m++) {
+      var r = rows[m];
+      rs.appendRow([
+        body.month, r.priority, r.company, r.team,
+        r.credit, r.used, r.remaining, r.remainingPct, r.taskCount, now3
+      ]);
+    }
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 
   if (body.action === "saveNote") {
     var ns   = getNoteSheet();

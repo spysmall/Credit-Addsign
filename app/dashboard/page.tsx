@@ -7,6 +7,7 @@ import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
 import { TEAM_MEMBERS } from "@/lib/team";
 import { fetchDistFromSheet } from "@/lib/sheetDistribution";
 import { fetchAllTaskUsage, TeamUsage } from "@/lib/sheetTasks";
+import { saveRemainingToSheet, RemainingRow } from "@/lib/sheetRemaining";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 
@@ -119,6 +120,7 @@ export default function DashboardPage() {
   const [config, setConfig]   = useState<DistConfig>([]);
   const [usage, setUsage]     = useState<Record<string, TeamUsage>>({});
   const [loading, setLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const buddhist = year + 543;
   const total = teamTotalCredits(year, month);
@@ -126,6 +128,7 @@ export default function DashboardPage() {
   useEffect(() => {
     setLoading(true);
     setUsage({});
+    setSyncStatus("idle");
 
     fetchDistFromSheet(year, month)
       .then((sheetMap) => {
@@ -154,6 +157,33 @@ export default function DashboardPage() {
   const totalAlloc = config.flatMap(p => p.companies).flatMap(c => c.teams)
     .reduce((s, t) => s + (t.pct / 100) * total, 0);
 
+  const syncRemaining = () => {
+    const rows: RemainingRow[] = [];
+    config.forEach((priority) => {
+      priority.companies.forEach((company) => {
+        company.teams.forEach((team) => {
+          const credit    = Math.round((team.pct / 100) * total * 100) / 100;
+          const ckey      = `${company.id.toUpperCase()}::${team.summaryGroup}`;
+          const perCo     = usage[ckey];
+          const used      = perCo?.used  ?? usage[team.summaryGroup]?.used  ?? 0;
+          const taskCount = perCo?.count ?? usage[team.summaryGroup]?.count ?? 0;
+          const remaining = Math.max(0, credit - used);
+          const remainingPct = credit > 0 ? Math.round((remaining / credit) * 100) : 0;
+          rows.push({
+            priority: priority.name,
+            company: company.name,
+            team: team.name,
+            credit, used, remaining, remainingPct, taskCount,
+          });
+        });
+      });
+    });
+    setSyncStatus("saving");
+    saveRemainingToSheet(year, month, rows)
+      .then((ok) => setSyncStatus(ok ? "saved" : "error"))
+      .catch(() => setSyncStatus("error"));
+  };
+
   return (
     <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
@@ -163,7 +193,26 @@ export default function DashboardPage() {
           <div className="flex items-start justify-between gap-4 mb-3 sm:mb-4">
             <p className="text-xs font-black uppercase tracking-[0.15em] pt-1"
               style={{ color: "var(--accent)" }}>Dashboard · เครดิตประจำเดือน</p>
-            <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
+            <div className="flex items-center gap-3">
+              {syncStatus === "saving" && (
+                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>⏳ กำลังบันทึก…</span>
+              )}
+              {syncStatus === "saved" && (
+                <span className="text-xs font-medium" style={{ color: "#22C55E" }}>✓ บันทึกลง Sheet แล้ว</span>
+              )}
+              {syncStatus === "error" && (
+                <span className="text-xs font-medium" style={{ color: "#EF4444" }}>⚠ บันทึกไม่สำเร็จ</span>
+              )}
+              {!loading && syncStatus === "idle" && (
+                <button
+                  onClick={syncRemaining}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all hover:opacity-80"
+                  style={{ borderColor: "var(--border)", color: "var(--text-muted)", background: "var(--bg-card)" }}>
+                  ↑ Sync คงเหลือ
+                </button>
+              )}
+              <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
+            </div>
           </div>
           <h1 className="text-3xl sm:text-4xl font-black leading-none tracking-tight"
             style={{ color: "var(--text-primary)" }}>
