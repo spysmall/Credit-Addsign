@@ -5,6 +5,7 @@ import MonthSelector from "@/components/MonthSelector";
 import { loadDistConfig, computeSummaryCredits, getSummaryGroups } from "@/lib/distribution";
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
 import { TEAM_MEMBERS } from "@/lib/team";
+import AdminGate from "@/components/AdminGate";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const THAI_MONTHS_FULL  = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
@@ -59,6 +60,7 @@ export default function SummaryPage() {
   const prevTotal = Object.values(prevAlloc).reduce((s, v) => s + v, 0);
 
   return (
+    <AdminGate>
     <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
 
@@ -183,5 +185,6 @@ export default function SummaryPage() {
 
       </div>
     </div>
+    </AdminGate>
   );
 }

@@ -6,6 +6,7 @@ import CreditOriginTable from "@/components/CreditOriginTable";
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
 import { getHolidaysForMonth } from "@/lib/holidays";
 import { TEAM_MEMBERS } from "@/lib/team";
+import AdminGate from "@/components/AdminGate";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const DAYS_TH = ["อา.","จ.","อ.","พ.","พฤ.","ศ.","ส."];
@@ -43,6 +44,7 @@ export default function CreditOriginPage() {
   const prevMonthLabel = `${THAI_MONTHS_SHORT[prevMonth - 1]} ${prevYear + 543}`;
 
   return (
+    <AdminGate>
     <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
 
@@ -178,6 +180,7 @@ export default function CreditOriginPage() {
         </div>
       </div>
     </div>
+    </AdminGate>
   );
 }
 

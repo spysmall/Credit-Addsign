@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, FormEvent } from "react";
+import { isAdminUnlocked, tryUnlockAdmin } from "@/lib/adminAuth";
 
 const DROPDOWN_ITEMS = [
   { href: "/credit-origin", label: "Information" },
@@ -13,6 +14,9 @@ const DROPDOWN_ITEMS = [
 export default function Navbar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const dashboardActive  = pathname === "/dashboard";
@@ -20,12 +24,33 @@ export default function Navbar() {
   const activeLabel      = DROPDOWN_ITEMS.find((i) => pathname === i.href)?.label;
 
   useEffect(() => {
+    if (isAdminUnlocked()) setUnlocked(true);
+  }, []);
+
+  function closeDropdown() {
+    setOpen(false);
+    setPin("");
+    setError(false);
+  }
+
+  useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) closeDropdown();
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  function handlePinSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (tryUnlockAdmin(pin)) {
+      setUnlocked(true);
+      setError(false);
+    } else {
+      setError(true);
+      setPin("");
+    }
+  }
 
   return (
     <header style={{ background: "var(--bg-dark)", borderBottom: "1px solid var(--border-dark)" }}
@@ -74,21 +99,42 @@ export default function Navbar() {
             {open && (
               <div className="absolute right-0 top-full mt-1.5 w-48 rounded-xl border shadow-lg overflow-hidden"
                 style={{ background: "var(--bg-card)", borderColor: "var(--border)", zIndex: 100 }}>
-                {DROPDOWN_ITEMS.map((item) => {
-                  const active = pathname === item.href;
-                  return (
-                    <Link key={item.href} href={item.href}
-                      onClick={() => setOpen(false)}
-                      className="flex items-center px-4 py-2.5 text-xs font-semibold transition-all"
-                      style={active
-                        ? { color: "var(--accent)", background: "var(--accent-light)" }
-                        : { color: "var(--text-secondary)", background: "transparent" }}>
-                      {active && <span className="w-1.5 h-1.5 rounded-full mr-2 shrink-0" style={{ background: "var(--accent)" }} />}
-                      {!active && <span className="w-1.5 h-1.5 mr-2 shrink-0" />}
-                      {item.label}
-                    </Link>
-                  );
-                })}
+                {unlocked ? (
+                  DROPDOWN_ITEMS.map((item) => {
+                    const active = pathname === item.href;
+                    return (
+                      <Link key={item.href} href={item.href}
+                        onClick={() => setOpen(false)}
+                        className="flex items-center px-4 py-2.5 text-xs font-semibold transition-all"
+                        style={active
+                          ? { color: "var(--accent)", background: "var(--accent-light)" }
+                          : { color: "var(--text-secondary)", background: "transparent" }}>
+                        {active && <span className="w-1.5 h-1.5 rounded-full mr-2 shrink-0" style={{ background: "var(--accent)" }} />}
+                        {!active && <span className="w-1.5 h-1.5 mr-2 shrink-0" />}
+                        {item.label}
+                      </Link>
+                    );
+                  })
+                ) : (
+                  <form onSubmit={handlePinSubmit} className="p-3">
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      autoFocus
+                      value={pin}
+                      onChange={(e) => { setPin(e.target.value); setError(false); }}
+                      className="w-full px-2.5 py-1.5 rounded-lg text-xs border mb-2"
+                      style={{ borderColor: error ? "#e11d48" : "var(--border)", background: "var(--bg-page)", color: "var(--text-primary)" }}
+                      placeholder="PIN"
+                    />
+                    {error && <p className="text-[11px] mb-2" style={{ color: "#e11d48" }}>รหัสไม่ถูกต้อง</p>}
+                    <button type="submit"
+                      className="w-full py-1.5 rounded-lg text-xs font-semibold"
+                      style={{ background: "var(--accent)", color: "#fff" }}>
+                      ยืนยัน
+                    </button>
+                  </form>
+                )}
               </div>
             )}
           </div>

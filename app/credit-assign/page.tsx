@@ -12,6 +12,7 @@ import {
 } from "@/lib/distribution";
 import { fetchAllTaskUsage, TeamUsage } from "@/lib/sheetTasks";
 import { fetchDistFromSheet, saveDistToSheet, flattenConfig, fetchNoteFromSheet, saveNoteToSheet } from "@/lib/sheetDistribution";
+import AdminGate from "@/components/AdminGate";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const notesKey = (y: number, m: number) => `credit-notes-v1-${y}-${m}`;
@@ -170,6 +171,7 @@ export default function CreditDistributionPage() {
   const isPastMonth = year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth() + 1);
 
   return (
+    <AdminGate>
     <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
 
@@ -544,5 +546,6 @@ export default function CreditDistributionPage() {
         </div>
       </div>
     </div>
+    </AdminGate>
   );
 }
