@@ -51,8 +51,9 @@ export default function CreditDistributionPage() {
   const [noteSyncStatus, setNoteSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // leave hours for current month (member id → hours)
-  const [leaveData, setLeaveData] = useState<Record<string, number>>({});
+  // leave hours for current and previous month
+  const [leaveData, setLeaveData]         = useState<Record<string, number>>({});
+  const [prevLeaveData, setPrevLeaveData] = useState<Record<string, number>>({});
 
   // previous month sheet data
   const [prevUsage, setPrevUsage]     = useState<Record<string, TeamUsage>>({});
@@ -109,10 +110,13 @@ export default function CreditDistributionPage() {
     });
   }, [year, month]);
 
-  // Fetch leave hours for current month
+  // Fetch leave hours for current and previous month
   useEffect(() => {
+    const { year: py, month: pm } = prevYM(year, month);
     setLeaveData({});
     fetchLeaveHours(year, month).then(setLeaveData).catch(() => {});
+    setPrevLeaveData({});
+    fetchLeaveHours(py, pm).then(setPrevLeaveData).catch(() => {});
   }, [year, month]);
 
   // Fetch previous month's task usage
@@ -135,7 +139,7 @@ export default function CreditDistributionPage() {
 
   // Previous month credits
   const { year: py, month: pm } = prevYM(year, month);
-  const prevTotalCredits = teamTotalCreditsForMonth(py, pm);
+  const prevTotalCredits = teamTotalCreditsForMonth(py, pm, prevLeaveData);
   const prevConfig       = loadDistConfig(py, pm); // synchronous from localStorage or default
   const prevAlloc        = computeSummaryCredits(prevConfig, prevTotalCredits);
 
