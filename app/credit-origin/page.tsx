@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import MonthSelector from "@/components/MonthSelector";
 import CreditOriginTable from "@/components/CreditOriginTable";
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
 import { getHolidaysForMonth } from "@/lib/holidays";
 import { TEAM_MEMBERS } from "@/lib/team";
+import { fetchLeaveHours } from "@/lib/sheetLeave";
 import AdminGate from "@/components/AdminGate";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
@@ -26,22 +27,30 @@ export default function CreditOriginPage() {
   const buddhist = year + 543;
   const monthShort = THAI_MONTHS_SHORT[month - 1];
 
-  // คำนวณเครดิตรวมทั้งทีม (base — ก่อนหักวันลา)
   const activeMembers = TEAM_MEMBERS.filter((m) => !m.excludeFromCredits);
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear  = month === 1 ? year - 1 : year;
+  const prevInfo  = getWorkdayInfo(prevYear, prevMonth);
+  const prevMonthLabel = `${THAI_MONTHS_SHORT[prevMonth - 1]} ${prevYear + 543}`;
+
+  // เครดิตรวมทั้งทีม (base — ก่อนหักวันลา ใช้แสดงใน stat card)
   const teamTotalCredits = activeMembers.reduce((sum, m) => {
     const hrs = m.isLead ? (m.customHoursPerMonth ?? info.workingHours) : info.workingHours;
     return sum + hoursToCredits(hrs);
   }, 0);
 
-  // เครดิตรวมเดือนก่อนหน้า
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear  = month === 1 ? year - 1 : year;
-  const prevInfo  = getWorkdayInfo(prevYear, prevMonth);
+  // เครดิตรวมเดือนก่อนหน้า — หักวันลา
+  const [prevLeaveData, setPrevLeaveData] = useState<Record<string, number>>({});
+  useEffect(() => {
+    setPrevLeaveData({});
+    fetchLeaveHours(prevYear, prevMonth).then(setPrevLeaveData).catch(() => {});
+  }, [prevYear, prevMonth]);
+
   const prevMonthCredits = activeMembers.reduce((sum, m) => {
-    const hrs = m.isLead ? (m.customHoursPerMonth ?? prevInfo.workingHours) : prevInfo.workingHours;
+    const base = m.isLead ? (m.customHoursPerMonth ?? prevInfo.workingHours) : prevInfo.workingHours;
+    const hrs = Math.max(0, base - (prevLeaveData[m.id] ?? 0));
     return sum + hoursToCredits(hrs);
   }, 0);
-  const prevMonthLabel = `${THAI_MONTHS_SHORT[prevMonth - 1]} ${prevYear + 543}`;
 
   return (
     <AdminGate>
