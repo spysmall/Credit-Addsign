@@ -45,12 +45,15 @@ export default function SummaryPage() {
   // Previous month allocation
   const [prevAlloc, setPrevAlloc]   = useState<Record<string, number>>({});
 
-  // Leave hours for current month
-  const [leaveData, setLeaveData] = useState<Record<string, number>>({});
+  // Leave hours for current and previous month
+  const [leaveData, setLeaveData]         = useState<Record<string, number>>({});
+  const [prevLeaveData, setPrevLeaveData] = useState<Record<string, number>>({});
 
   useEffect(() => {
     setLeaveData({});
     fetchLeaveHours(year, month).then(setLeaveData).catch(() => {});
+    setPrevLeaveData({});
+    fetchLeaveHours(py, pm).then(setPrevLeaveData).catch(() => {});
   }, [year, month]);
 
   useEffect(() => {
@@ -61,10 +64,10 @@ export default function SummaryPage() {
     setGroups(getSummaryGroups(currConfig));
 
     const prevConfig  = loadDistConfig(py, pm);
-    const prevTotal   = teamTotalCredits(py, pm);
+    const prevTotal   = teamTotalCredits(py, pm, prevLeaveData);
     const prev        = computeSummaryCredits(prevConfig, prevTotal);
     setPrevAlloc(prev);
-  }, [year, month, leaveData]);
+  }, [year, month, leaveData, prevLeaveData]);
 
   const currTotal = Object.values(currAlloc).reduce((s, v) => s + v, 0);
   const prevTotal = Object.values(prevAlloc).reduce((s, v) => s + v, 0);
