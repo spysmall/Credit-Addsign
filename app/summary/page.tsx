@@ -5,6 +5,7 @@ import MonthSelector from "@/components/MonthSelector";
 import { loadDistConfig, computeSummaryCredits, getSummaryGroups } from "@/lib/distribution";
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
 import { TEAM_MEMBERS } from "@/lib/team";
+import { fetchLeaveHours } from "@/lib/sheetLeave";
 import AdminGate from "@/components/AdminGate";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
@@ -14,11 +15,12 @@ function prevYM(year: number, month: number) {
   return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
 }
 
-function teamTotalCredits(y: number, m: number): number {
+function teamTotalCredits(y: number, m: number, leave: Record<string, number> = {}): number {
   const info = getWorkdayInfo(y, m);
   const active = TEAM_MEMBERS.filter((mem) => !mem.excludeFromCredits);
   return active.reduce((sum, mem) => {
-    const hrs = mem.isLead ? (mem.customHoursPerMonth ?? info.workingHours) : info.workingHours;
+    const base = mem.isLead ? (mem.customHoursPerMonth ?? info.workingHours) : info.workingHours;
+    const hrs = Math.max(0, base - (leave[mem.id] ?? 0));
     return sum + hoursToCredits(hrs);
   }, 0);
 }
@@ -43,9 +45,17 @@ export default function SummaryPage() {
   // Previous month allocation
   const [prevAlloc, setPrevAlloc]   = useState<Record<string, number>>({});
 
+  // Leave hours for current month
+  const [leaveData, setLeaveData] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    setLeaveData({});
+    fetchLeaveHours(year, month).then(setLeaveData).catch(() => {});
+  }, [year, month]);
+
   useEffect(() => {
     const currConfig  = loadDistConfig(year, month);
-    const currTotal   = teamTotalCredits(year, month);
+    const currTotal   = teamTotalCredits(year, month, leaveData);
     const curr        = computeSummaryCredits(currConfig, currTotal);
     setCurrAlloc(curr);
     setGroups(getSummaryGroups(currConfig));
@@ -54,7 +64,7 @@ export default function SummaryPage() {
     const prevTotal   = teamTotalCredits(py, pm);
     const prev        = computeSummaryCredits(prevConfig, prevTotal);
     setPrevAlloc(prev);
-  }, [year, month]);
+  }, [year, month, leaveData]);
 
   const currTotal = Object.values(currAlloc).reduce((s, v) => s + v, 0);
   const prevTotal = Object.values(prevAlloc).reduce((s, v) => s + v, 0);
