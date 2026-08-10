@@ -25,16 +25,23 @@ export async function fetchLeaveHours(
   const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
   const rows = parseCSV(text);
   const result: Record<string, number> = {};
+  const seen = new Set<string>();
 
   for (const row of rows) {
     if (row["ทีม"] !== "Media") continue;
-    if (!row["เริ่ม"]?.startsWith(monthPrefix)) continue;
+    if (row["สถานะ"] !== "approved") continue;
+    if (!row["วันเริ่ม"]?.startsWith(monthPrefix)) continue;
 
-    const nickname = row["ผู้ยื่น"]?.trim();
+    // deduplicate by leave ID
+    const leaveId = row["เลขที่ใบลา"]?.trim();
+    if (leaveId && seen.has(leaveId)) continue;
+    if (leaveId) seen.add(leaveId);
+
+    const nickname = row["ชื่อเล่น"]?.trim();
     const member = TEAM_MEMBERS.find((m) => m.nickname === nickname);
     if (!member) continue;
 
-    const days = parseFloat(row["จำนวน"]) || 0;
+    const days = parseFloat(row["จำนวนวัน"]) || 0;
     result[member.id] = (result[member.id] ?? 0) + days * 8;
   }
 

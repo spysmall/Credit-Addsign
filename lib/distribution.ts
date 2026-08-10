@@ -82,9 +82,9 @@ export const DEFAULT_DIST_CONFIG: DistConfig = [
     companies: [
       {
         id: "cri",
-        name: "CRI, Aztek, Topfiar",
+        name: "CRI, Aztek, Topfiar, Other",
         teams: [
-          { id: "cri-all",      name: "CRI, Aztek, Topfiar", summaryGroup: "CRI, Aztek, Topfiar", pct: 1  },
+          { id: "cri-all",      name: "CRI, Aztek, Topfiar, Other", summaryGroup: "CRI, Aztek, Topfiar, Other", pct: 1  },
         ],
       },
     ],

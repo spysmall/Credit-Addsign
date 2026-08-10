@@ -108,7 +108,8 @@ const TEAM_ICONS: Record<string, React.ReactNode> = {
   "BD(HOF)":               <IconTrophy />,
   "BD":                    <IconTarget />,
   "AGX":                   <IconBolt />,
-  "CRI, Aztek, Topfiar":   <IconPalette />,
+  "CRI, Aztek, Topfiar":         <IconPalette />,
+  "CRI, Aztek, Topfiar, Other": <IconPalette />,
   "Director&Manager&Edit": <IconFilm />,
 };
 

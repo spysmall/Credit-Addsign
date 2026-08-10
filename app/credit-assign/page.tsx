@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import MonthSelector from "@/components/MonthSelector";
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
 import { TEAM_MEMBERS } from "@/lib/team";
+import { fetchLeaveHours } from "@/lib/sheetLeave";
 import {
   DistConfig, DistTeam,
   DEFAULT_DIST_CONFIG,
@@ -21,11 +22,12 @@ function prevYM(year: number, month: number) {
   return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
 }
 
-function teamTotalCreditsForMonth(y: number, m: number): number {
+function teamTotalCreditsForMonth(y: number, m: number, leave: Record<string, number> = {}): number {
   const info = getWorkdayInfo(y, m);
   const active = TEAM_MEMBERS.filter((mem) => !mem.excludeFromCredits);
   return active.reduce((sum, mem) => {
-    const hrs = mem.isLead ? (mem.customHoursPerMonth ?? info.workingHours) : info.workingHours;
+    const base = mem.isLead ? (mem.customHoursPerMonth ?? info.workingHours) : info.workingHours;
+    const hrs = Math.max(0, base - (leave[mem.id] ?? 0));
     return sum + hoursToCredits(hrs);
   }, 0);
 }
@@ -48,6 +50,9 @@ export default function CreditDistributionPage() {
   const [notes, setNotes] = useState("");
   const [noteSyncStatus, setNoteSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // leave hours for current month (member id → hours)
+  const [leaveData, setLeaveData] = useState<Record<string, number>>({});
 
   // previous month sheet data
   const [prevUsage, setPrevUsage]     = useState<Record<string, TeamUsage>>({});
@@ -104,6 +109,12 @@ export default function CreditDistributionPage() {
     });
   }, [year, month]);
 
+  // Fetch leave hours for current month
+  useEffect(() => {
+    setLeaveData({});
+    fetchLeaveHours(year, month).then(setLeaveData).catch(() => {});
+  }, [year, month]);
+
   // Fetch previous month's task usage
   useEffect(() => {
     const { year: py, month: pm } = prevYM(year, month);
@@ -115,7 +126,7 @@ export default function CreditDistributionPage() {
       .finally(() => setPrevLoading(false));
   }, [year, month]);
 
-  const totalCredits = teamTotalCreditsForMonth(year, month);
+  const totalCredits = teamTotalCreditsForMonth(year, month, leaveData);
   const sum = totalPct(config);
   const summaryGroups = getSummaryGroups(config);
 

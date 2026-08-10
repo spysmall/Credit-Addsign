@@ -52,9 +52,11 @@ const ALIAS: Record<string, string> = {
   "bd-wangruay":               "WR",
 
   // CRI, Aztek, Topfiar
-  "cri, aztek, topfiar":       "CRI, Aztek, Topfiar",
-  "cri":                       "CRI, Aztek, Topfiar",
-  "cdm":                       "CRI, Aztek, Topfiar",
+  "cri, aztek, topfiar":       "CRI, Aztek, Topfiar, Other",
+  "cri, aztek, topfiar, other": "CRI, Aztek, Topfiar, Other",
+  "cri":                       "CRI, Aztek, Topfiar, Other",
+  "cdm":                       "CRI, Aztek, Topfiar, Other",
+  "other":                     "CRI, Aztek, Topfiar, Other",
 
   // Director&Manager&Edit
   "director&manager&edit":     "Director&Manager&Edit",
