@@ -108,12 +108,33 @@ export const DEFAULT_DIST_CONFIG: DistConfig = [
 
 const STORAGE_KEY = (y: number, m: number) => `credit-dist-v1-${y}-${m}`;
 
+// Migrate config: rename old CRI group name and deduplicate companies by id
+function migrateConfig(config: DistConfig): DistConfig {
+  const OLD = "CRI, Aztek, Topfiar";
+  const NEW = "CRI, Aztek, Topfiar, Other";
+  return config.map((priority) => {
+    const seen = new Set<string>();
+    const companies = priority.companies
+      .map((company) => ({
+        ...company,
+        name: company.name === OLD ? NEW : company.name,
+        teams: company.teams.map((team) => ({
+          ...team,
+          name: team.name === OLD ? NEW : team.name,
+          summaryGroup: team.summaryGroup === OLD ? NEW : team.summaryGroup,
+        })),
+      }))
+      .filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+    return { ...priority, companies };
+  });
+}
+
 export function loadDistConfig(year: number, month: number): DistConfig {
   if (typeof window === "undefined") return DEFAULT_DIST_CONFIG;
 
   const stored = localStorage.getItem(STORAGE_KEY(year, month));
   if (stored) {
-    try { return JSON.parse(stored) as DistConfig; } catch { /* fall through */ }
+    try { return migrateConfig(JSON.parse(stored) as DistConfig); } catch { /* fall through */ }
   }
 
   // Fallback to previous month's config
@@ -121,7 +142,7 @@ export function loadDistConfig(year: number, month: number): DistConfig {
   const prevYear  = month === 1 ? year - 1 : year;
   const prevStored = localStorage.getItem(STORAGE_KEY(prevYear, prevMonth));
   if (prevStored) {
-    try { return JSON.parse(prevStored) as DistConfig; } catch { /* fall through */ }
+    try { return migrateConfig(JSON.parse(prevStored) as DistConfig); } catch { /* fall through */ }
   }
 
   return DEFAULT_DIST_CONFIG;

@@ -103,9 +103,19 @@ function doPost(e) {
 
   if (body.action === "saveRemaining") {
     var rs   = getRemainingSheet();
-    var rd   = rs.getDataRange().getValues();
     var now3 = new Date().toISOString();
     var rows = body.rows || [];
+
+    // Delete legacy rows with old CRI group name (exact match, no ", Other" suffix)
+    var legacyName = "CRI, Aztek, Topfiar";
+    var legacy = rs.getDataRange().getValues();
+    for (var i = legacy.length - 1; i >= 1; i--) {
+      if (String(legacy[i][2]) === legacyName || String(legacy[i][3]) === legacyName) {
+        rs.deleteRow(i + 1);
+      }
+    }
+
+    var rd   = rs.getDataRange().getValues();
 
     // Index existing rows by month|priority|company|team → sheet row number, so
     // matching rows get updated in place instead of deleted + re-appended.
