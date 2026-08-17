@@ -8,14 +8,16 @@ import { TEAM_MEMBERS } from "@/lib/team";
 import { fetchDistFromSheet } from "@/lib/sheetDistribution";
 import { fetchAllTaskUsage, TeamUsage } from "@/lib/sheetTasks";
 import { saveRemainingToSheet, RemainingRow } from "@/lib/sheetRemaining";
+import { fetchLeaveHours } from "@/lib/sheetLeave";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 
-function teamTotalCredits(y: number, m: number): number {
+function teamTotalCredits(y: number, m: number, leave: Record<string, number> = {}): number {
   const info = getWorkdayInfo(y, m);
   const active = TEAM_MEMBERS.filter((mem) => !mem.excludeFromCredits);
   return active.reduce((sum, mem) => {
-    const hrs = mem.isLead ? (mem.customHoursPerMonth ?? info.workingHours) : info.workingHours;
+    const base = mem.isLead ? (mem.customHoursPerMonth ?? info.workingHours) : info.workingHours;
+    const hrs = Math.max(0, base - (leave[mem.id] ?? 0));
     return sum + hoursToCredits(hrs);
   }, 0);
 }
@@ -121,9 +123,15 @@ export default function DashboardPage() {
   const [usage, setUsage]     = useState<Record<string, TeamUsage>>({});
   const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [leaveData, setLeaveData] = useState<Record<string, number>>({});
 
   const buddhist = year + 543;
-  const total = teamTotalCredits(year, month);
+  const total = teamTotalCredits(year, month, leaveData);
+
+  useEffect(() => {
+    setLeaveData({});
+    fetchLeaveHours(year, month).then(setLeaveData).catch(() => {});
+  }, [year, month]);
 
   useEffect(() => {
     setLoading(true);
@@ -151,7 +159,7 @@ export default function DashboardPage() {
 
     // Fetch actual usage for this month from task sheet
     fetchAllTaskUsage(year, month).then(setUsage).catch(() => {});
-  }, [year, month, total]);
+  }, [year, month]);
 
   // Only sum aggregate keys (no "::") — per-company keys like "CB::GP" are
   // sub-totals of the same task, not extra usage, so including them would double-count.
