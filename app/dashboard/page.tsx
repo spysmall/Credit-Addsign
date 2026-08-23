@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import MonthSelector from "@/components/MonthSelector";
 import { loadDistConfig, DistConfig } from "@/lib/distribution";
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
@@ -11,6 +11,7 @@ import { saveRemainingToSheet, RemainingRow } from "@/lib/sheetRemaining";
 import { fetchLeaveHours } from "@/lib/sheetLeave";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+const AUTO_SYNC_KEY = (y: number, m: number) => `credit-autosync-${y}-${m}`;
 
 function teamTotalCredits(y: number, m: number, leave: Record<string, number> = {}): number {
   const info = getWorkdayInfo(y, m);
@@ -122,8 +123,10 @@ export default function DashboardPage() {
   const [config, setConfig]   = useState<DistConfig>([]);
   const [usage, setUsage]     = useState<Record<string, TeamUsage>>({});
   const [loading, setLoading] = useState(true);
+  const [usageLoaded, setUsageLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [leaveData, setLeaveData] = useState<Record<string, number>>({});
+  const autoSyncFired = useRef(false);
 
   const buddhist = year + 543;
   const total = teamTotalCredits(year, month, leaveData);
@@ -134,7 +137,9 @@ export default function DashboardPage() {
   }, [year, month]);
 
   useEffect(() => {
+    autoSyncFired.current = false;
     setLoading(true);
+    setUsageLoaded(false);
     setUsage({});
     setSyncStatus("idle");
 
@@ -158,8 +163,30 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
 
     // Fetch actual usage for this month from task sheet
-    fetchAllTaskUsage(year, month).then(setUsage).catch(() => {});
+    fetchAllTaskUsage(year, month)
+      .then((data) => { setUsage(data); setUsageLoaded(true); })
+      .catch(() => setUsageLoaded(true));
   }, [year, month]);
+
+  // Auto-sync every Friday ≥ 10:00 AM for the current month
+  useEffect(() => {
+    if (loading || !usageLoaded) return;
+    if (autoSyncFired.current) return;
+    if (syncStatus !== "idle") return;
+
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth() + 1;
+    if (now.getDay() !== 5 || now.getHours() < 10) return; // not Friday 10:00+
+    if (year !== curYear || month !== curMonth) return;     // not current month
+
+    const todayStr = `${curYear}-${curMonth}-${now.getDate()}`;
+    if (localStorage.getItem(AUTO_SYNC_KEY(year, month)) === todayStr) return;
+
+    autoSyncFired.current = true;
+    localStorage.setItem(AUTO_SYNC_KEY(year, month), todayStr);
+    syncRemaining();
+  }, [loading, usageLoaded]);
 
   // Only sum aggregate keys (no "::") — per-company keys like "CB::GP" are
   // sub-totals of the same task, not extra usage, so including them would double-count.
@@ -215,6 +242,20 @@ export default function DashboardPage() {
               {syncStatus === "error" && (
                 <span className="text-xs font-medium" style={{ color: "#EF4444" }}>⚠ บันทึกไม่สำเร็จ</span>
               )}
+              {/* Auto-sync badge */}
+              {!loading && syncStatus === "idle" && (() => {
+                const now = new Date();
+                const curYear = now.getFullYear();
+                const curMonth = now.getMonth() + 1;
+                const isCurrent = year === curYear && month === curMonth;
+                const todayStr = `${curYear}-${curMonth}-${now.getDate()}`;
+                const syncedToday = isCurrent && localStorage.getItem(AUTO_SYNC_KEY(year, month)) === todayStr;
+                return (
+                  <span className="text-[10px] font-medium hidden sm:block" style={{ color: syncedToday ? "#22C55E" : "var(--text-muted)" }}>
+                    {syncedToday ? "⏰ Auto sync แล้ววันนี้" : "⏰ Auto ทุกวันศุกร์ 10:00"}
+                  </span>
+                );
+              })()}
               {!loading && syncStatus === "idle" && (
                 <button
                   onClick={syncRemaining}
