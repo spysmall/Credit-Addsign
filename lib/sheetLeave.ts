@@ -22,7 +22,6 @@ export async function fetchLeaveHours(
   const res = await fetch(url, { cache: "no-store" });
   const text = await res.text();
 
-  const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
   const rows = parseCSV(text);
   const result: Record<string, number> = {};
   const seen = new Set<string>();
@@ -30,7 +29,13 @@ export async function fetchLeaveHours(
   for (const row of rows) {
     if (row["ทีม"] !== "Media") continue;
     if (row["สถานะ"] !== "approved") continue;
-    if (!row["วันเริ่ม"]?.startsWith(monthPrefix)) continue;
+
+    // วันเริ่ม is stored as D/M/YYYY (e.g. "19/1/2026"), not ISO
+    const parts = row["วันเริ่ม"]?.split("/") ?? [];
+    if (parts.length < 3) continue;
+    const rowMonth = parseInt(parts[1], 10);
+    const rowYear  = parseInt(parts[2], 10);
+    if (rowMonth !== month || rowYear !== year) continue;
 
     // deduplicate by leave ID
     const leaveId = row["เลขที่ใบลา"]?.trim();

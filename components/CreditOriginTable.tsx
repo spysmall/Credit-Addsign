@@ -32,10 +32,12 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
   });
 
   const [sheetLoading, setSheetLoading] = useState(true);
+  const [sheetError, setSheetError] = useState(false);
 
-  useEffect(() => {
+  const loadLeave = (y: number, m: number) => {
     setSheetLoading(true);
-    fetchLeaveHours(year, month)
+    setSheetError(false);
+    fetchLeaveHours(y, m)
       .then((data) => {
         setMemberStates((prev) => {
           const next = { ...prev };
@@ -51,8 +53,12 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
           return next;
         });
       })
-      .catch(() => {})
+      .catch(() => setSheetError(true))
       .finally(() => setSheetLoading(false));
+  };
+
+  useEffect(() => {
+    loadLeave(year, month);
   }, [year, month]);
 
   const [editingLead, setEditingLead] = useState(false);
@@ -90,7 +96,15 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
             Working<sub className="block normal-case font-medium tracking-normal text-[10px] not-italic">hrs / month</sub>
           </ColHead>
           <ColHead className="px-4 py-3.5 text-center" style={{ color: "var(--accent)", background: "var(--accent-light)" }}>
-            Time Off<sub className="block normal-case font-medium tracking-normal text-[10px] not-italic opacity-70">ชั่วโมงหยุด / ลา</sub>
+            <div className="flex items-center gap-1 justify-center">
+              <span>Time Off</span>
+              {sheetLoading && <span className="text-[9px] animate-pulse" style={{ color: "var(--accent)" }}>●</span>}
+              {sheetError && (
+                <button onClick={() => loadLeave(year, month)} title="โหลดซ้ำ"
+                  className="text-[9px] px-1 rounded hover:opacity-70" style={{ color: "#EF4444" }}>⚠ retry</button>
+              )}
+            </div>
+            <sub className="block normal-case font-medium tracking-normal text-[10px] not-italic opacity-70">ชั่วโมงหยุด / ลา</sub>
           </ColHead>
           <ColHead className="px-4 py-3.5 text-center" style={{ color: "var(--text-muted)" }}>
             Remaining<sub className="block normal-case font-medium tracking-normal text-[10px] not-italic">ชั่วโมงสุทธิ</sub>
@@ -129,8 +143,12 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
               {/* Time off */}
               <div className="px-4 py-3.5 flex items-center justify-center"
                 style={{ background: deducted ? "var(--accent-light)" : "transparent" }}>
-                <HolidayEditor memberId={m.id} memberName={`${m.fullName} (${m.nickname})`}
-                  currentTimeOffHours={off} maxHours={base} onUpdate={setTimeOff} />
+                {sheetLoading ? (
+                  <span className="text-sm animate-pulse" style={{ color: "var(--text-muted)" }}>…</span>
+                ) : (
+                  <HolidayEditor memberId={m.id} memberName={`${m.fullName} (${m.nickname})`}
+                    currentTimeOffHours={off} maxHours={base} onUpdate={setTimeOff} />
+                )}
               </div>
               {/* Remaining */}
               <div className="px-4 py-3.5 flex items-center justify-center">
@@ -229,10 +247,14 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
                   style={{ background: deducted ? "var(--accent-light)" : "#F5F5F5" }}>
                   <p className="text-[10px] font-semibold uppercase tracking-wide mb-1"
                     style={{ color: deducted ? "var(--accent)" : "var(--text-muted)" }}>Time Off</p>
-                  <HolidayEditor memberId={m.id} memberName={`${m.fullName} (${m.nickname})`}
-                    currentTimeOffHours={off} maxHours={base} onUpdate={setTimeOff} />
+                  {sheetLoading ? (
+                    <span className="text-sm animate-pulse" style={{ color: "var(--text-muted)" }}>…</span>
+                  ) : (
+                    <HolidayEditor memberId={m.id} memberName={`${m.fullName} (${m.nickname})`}
+                      currentTimeOffHours={off} maxHours={base} onUpdate={setTimeOff} />
+                  )}
                   <p className="text-[10px] mt-0.5" style={{ color: deducted ? "var(--accent)" : "var(--text-muted)" }}>
-                    {deducted ? "ชั่วโมง" : "แตะเพื่อแก้ไข"}
+                    {sheetLoading ? "กำลังโหลด…" : deducted ? "ชั่วโมง" : "แตะเพื่อแก้ไข"}
                   </p>
                 </div>
 
