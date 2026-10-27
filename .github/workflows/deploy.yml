@@ -67,7 +67,9 @@ jobs:
           npm ci
           npm run build
         env:
-          # no NEXT_PUBLIC_DIST_SCRIPT_URL → the test site never writes to Google Sheets
+          # no NEXT_PUBLIC_DIST_SCRIPT_URL → the test site never writes the live credit sheets;
+          # it may only save submitted tasks to the shared "Web Tasks" tab
+          NEXT_PUBLIC_TASKS_SCRIPT_URL: https://script.google.com/macros/s/AKfycbxvMjWKjx9nXnGYUFEuqMx36miaEuU2ma1UvatTUowoELen3R-J0YHbyrPNRTuEvJI/exec
           NEXT_PUBLIC_BASE_PATH: /Credit-Addsign/beta
           NEXT_PUBLIC_APP_ENV: beta
           NEXT_PUBLIC_GOOGLE_CLIENT_ID: 1026556679375-gun2k6t7bmm5c7n373t0uatrl9le7864.apps.googleusercontent.com
