@@ -1,13 +1,13 @@
 /**
  * Task assignment (web form replacing the Notion form).
- * Tasks are kept in localStorage per month and mirrored to the shared "Web Tasks" sheet
- * (lib/sheetWebTasks.ts), which every signed-in browser merges back in.
+ * Tasks are kept in localStorage per month (a cache the rest of the app reads synchronously) and
+ * mirrored to Firestore (lib/sheetWebTasks.ts), which every signed-in browser listens to live.
  * Field names mirror the Notion form so they can be pushed there later.
  */
 import type { DistConfig, DistTeam } from "./distribution";
 import type { TeamUsage } from "./sheetTasks";
 import type { RequestTypeKey } from "./priceTable";
-import { fetchWebTasks, saveTaskToSheet } from "./sheetWebTasks";
+import { fetchLegacySheetTasks, saveTaskToSheet } from "./sheetWebTasks";
 
 export const PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
 
@@ -162,13 +162,8 @@ export function addAssigned(task: AssignedTask) {
   void saveTaskToSheet(t);
 }
 
-/**
- * Pull the shared "Web Tasks" sheet into this browser's store (newer copy wins), so tasks
- * submitted on other devices count toward credit and show up in "งานของฉัน".
- * Returns how many tasks were added or replaced.
- */
-export async function syncWebTasks(): Promise<number> {
-  const remote = await fetchWebTasks();
+/** Merge tasks from the shared store into this browser's copy (newer `updatedAt` wins). Returns how many changed. */
+export function mergeRemoteTasks(remote: AssignedTask[]): number {
   let changed = 0;
   const byMonth = new Map<string, AssignedTask[]>();
   for (const t of remote) {
@@ -188,12 +183,23 @@ export async function syncWebTasks(): Promise<number> {
     if (monthChanged) saveAssigned(year, month, local);
     changed += monthChanged;
   }
-  // tasks only this browser has (e.g. made before sharing existed) → upload them
-  const remoteIds = new Set(remote.map((t) => t.id));
-  for (const { year, month } of assignedMonths()) {
-    for (const t of loadAssigned(year, month)) if (!remoteIds.has(t.id)) void saveTaskToSheet(t);
-  }
   return changed;
+}
+
+/**
+ * Upload what only this browser knows about — tasks made before sharing existed, or carried over
+ * from the old "Web Tasks" sheet — once the shared store's contents (`remoteIds`) are known.
+ * Firestore rules only let the original submitter create a task, so others' rows are skipped there.
+ */
+export async function uploadMissingTasks(remoteIds: Set<string>): Promise<number> {
+  const legacy = await fetchLegacySheetTasks().catch(() => [] as AssignedTask[]);
+  let merged = mergeRemoteTasks(legacy);
+  for (const { year, month } of assignedMonths()) {
+    for (const t of loadAssigned(year, month)) {
+      if (!remoteIds.has(t.id) && await saveTaskToSheet(t)) merged++;
+    }
+  }
+  return merged;
 }
 
 /**

@@ -451,3 +451,80 @@ function designerLoad_() {
   cache.put("designer-load", JSON.stringify(out), 120);
   return out;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Firebase: copy the allowlist (users sheet → column Email) into Firestore "allowedUsers", which
+// firestore.rules checks before anyone may read or write requests. Runs every hour.
+//
+// Setup (once): put lib/appsscript.json in the project (Project Settings → "Show appsscript.json",
+// then paste), run installAllowedUsersTrigger() once from the editor and approve the permissions.
+// ─────────────────────────────────────────────────────────────────────────────
+
+var FIREBASE_PROJECT = "mm-credit-addsign";
+var USERS_CSV_URL = "https://docs.google.com/spreadsheets/d/1nHjuzBhl3cNjuAhVMzpylW5CQuT9PggzRsoNL-m0JXU/gviz/tq?tqx=out:csv&gid=1388053801";
+
+function installAllowedUsersTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === "syncAllowedUsers") ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("syncAllowedUsers").timeBased().everyHours(1).create();
+  syncAllowedUsers();
+}
+
+function syncAllowedUsers() {
+  var csv = UrlFetchApp.fetch(USERS_CSV_URL).getContentText();
+  var rows = Utilities.parseCsv(csv);
+  var head = rows[0] || [];
+  var col = function (re) { for (var i = 0; i < head.length; i++) if (re.test(String(head[i]).trim())) return i; return -1; };
+  var emailIdx = col(/^email/i), nickIdx = col(/^ชื่อเล่น$/), teamIdx = col(/^(ทีม|team)$/i);
+  if (emailIdx < 0) throw new Error("users sheet has no Email column");
+
+  var wanted = {};
+  for (var r = 1; r < rows.length; r++) {
+    var email = String(rows[r][emailIdx] || "").trim().toLowerCase();
+    if (email.indexOf("@") < 0) continue;
+    wanted[email] = {
+      name: nickIdx >= 0 ? String(rows[r][nickIdx] || "").trim() : "",
+      team: teamIdx >= 0 ? String(rows[r][teamIdx] || "").trim() : "",
+    };
+  }
+  // a broken sheet must not lock everyone out
+  if (Object.keys(wanted).length === 0) throw new Error("users sheet returned no emails — nothing synced");
+
+  var base = "projects/" + FIREBASE_PROJECT + "/databases/(default)/documents";
+  var api = "https://firestore.googleapis.com/v1/";
+  var headers = { Authorization: "Bearer " + ScriptApp.getOAuthToken() };
+
+  // what is there now
+  var existing = {};
+  var pageToken = "";
+  do {
+    var res = UrlFetchApp.fetch(api + base + "/allowedUsers?pageSize=300&mask.fieldPaths=name" + (pageToken ? "&pageToken=" + pageToken : ""),
+      { headers: headers, muteHttpExceptions: true });
+    if (res.getResponseCode() >= 300) throw new Error("Firestore list: " + res.getContentText());
+    var page = JSON.parse(res.getContentText() || "{}");
+    (page.documents || []).forEach(function (d) { existing[decodeURIComponent(d.name.split("/").pop())] = true; });
+    pageToken = page.nextPageToken || "";
+  } while (pageToken);
+
+  // upsert everyone on the sheet, delete everyone who left it
+  var now = new Date().toISOString();
+  var writes = [];
+  Object.keys(wanted).forEach(function (email) {
+    writes.push({ update: {
+      name: base + "/allowedUsers/" + email,
+      fields: { email: { stringValue: email }, name: { stringValue: wanted[email].name }, team: { stringValue: wanted[email].team }, updatedAt: { stringValue: now } },
+    } });
+  });
+  Object.keys(existing).forEach(function (email) {
+    if (!wanted[email]) writes.push({ "delete": base + "/allowedUsers/" + email });
+  });
+  for (var i = 0; i < writes.length; i += 400) {
+    var commit = UrlFetchApp.fetch(api + base + ":commit", {
+      method: "post", contentType: "application/json", headers: headers, muteHttpExceptions: true,
+      payload: JSON.stringify({ writes: writes.slice(i, i + 400) }),
+    });
+    if (commit.getResponseCode() >= 300) throw new Error("Firestore commit: " + commit.getContentText());
+  }
+  Logger.log("allowedUsers synced: " + Object.keys(wanted).length + " emails");
+}

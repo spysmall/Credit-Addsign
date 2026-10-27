@@ -1,13 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  AssignSession, GOOGLE_CLIENT_ID, clearSession, isSuperAdmin, loadSession, saveSession, sessionFromCredential,
-} from "@/lib/assignSession";
+import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
+import { AssignSession, clearSession, isSuperAdmin } from "@/lib/assignSession";
+import { auth } from "@/lib/firebase";
+import { subscribeWebTasks } from "@/lib/sheetWebTasks";
 import { fetchAllowedUsers } from "@/lib/sheetUsers";
 import { IS_BETA } from "@/lib/appEnv";
-import { syncWebTasks } from "@/lib/taskAssign";
+import { mergeRemoteTasks, uploadMissingTasks } from "@/lib/taskAssign";
 
 export interface AuthUser {
   user: AssignSession;
@@ -19,7 +20,7 @@ export interface AuthUser {
   people: { email: string; name: string }[];
   /** super admin: no PIN, sees everything */
   isSuperAdmin: boolean;
-  /** bumps whenever tasks from the shared "Web Tasks" sheet change this browser's copy — use as an effect dependency */
+  /** bumps whenever shared tasks (Firestore) change this browser's copy — use as an effect dependency */
   tasksVersion: number;
   signOut: () => void;
 }
@@ -44,54 +45,37 @@ export function useAssignUser(): AuthUser {
   return v;
 }
 
-// ── Google Identity Services ──
-interface GoogleId {
-  initialize: (cfg: { client_id: string; callback: (r: { credential: string }) => void }) => void;
-  renderButton: (el: HTMLElement, opts: Record<string, string | number>) => void;
-  disableAutoSelect?: () => void;
-}
-declare global {
-  interface Window { google?: { accounts: { id: GoogleId } } }
-}
-
-function loadGsi(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (window.google?.accounts?.id) return resolve();
-    const existing = document.querySelector<HTMLScriptElement>("script[data-gsi]");
-    const s = existing ?? document.createElement("script");
-    s.addEventListener("load", () => resolve());
-    s.addEventListener("error", () => reject(new Error("gsi")));
-    if (!existing) {
-      s.src = "https://accounts.google.com/gsi/client";
-      s.async = true;
-      s.dataset.gsi = "1";
-      document.head.appendChild(s);
+// ── Google sign-in through Firebase Auth (identity is verified by Google, and Firestore rules trust it) ──
+function GoogleButton({ onError }: { onError: (msg: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const signIn = async () => {
+    setBusy(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? "";
+      if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
+        onError(code === "auth/popup-blocked" ? "เบราว์เซอร์บล็อกหน้าต่างล็อกอิน อนุญาต popup แล้วลองใหม่" : "เข้าสู่ระบบไม่สำเร็จ ลองใหม่อีกครั้ง");
+      }
+    } finally {
+      setBusy(false);
     }
-  });
-}
-
-function GoogleButton({ onCredential }: { onCredential: (credential: string) => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const cb = useRef(onCredential);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => { cb.current = onCredential; }, [onCredential]);
-
-  useEffect(() => {
-    let alive = true;
-    loadGsi()
-      .then(() => {
-        if (!alive || !ref.current || !window.google) return;
-        window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: (r) => cb.current(r.credential) });
-        window.google.accounts.id.renderButton(ref.current, { theme: "outline", size: "large", text: "signin_with", shape: "pill", locale: "th",
-          // Google caps the button at 400px; fill the container up to that
-          width: Math.min(400, Math.max(200, Math.floor(ref.current.getBoundingClientRect().width))) });
-      })
-      .catch(() => { if (alive) setFailed(true); });
-    return () => { alive = false; };
-  }, []);
-
-  if (failed) return <p className="text-sm font-semibold" style={{ color: "#DC2626" }}>โหลดปุ่ม Google ไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วรีเฟรชหน้า</p>;
-  return <div ref={ref} className="w-full min-h-[44px] [&>div]:w-full" />;
+  };
+  return (
+    <button type="button" onClick={signIn} disabled={busy}
+      className="flex w-full items-center justify-center gap-3 rounded-full border px-5 py-3 text-sm font-semibold transition-colors hover:bg-black/5 disabled:opacity-60"
+      style={{ borderColor: "var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" }}>
+      <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden>
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+      </svg>
+      {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบด้วย Google"}
+    </button>
+  );
 }
 
 // ── Provider: the whole site requires Google sign-in with an allow-listed email ──
@@ -104,12 +88,27 @@ type Access =
 export default function AuthProvider({ header, children }: { header?: React.ReactNode; children: React.ReactNode }) {
   const [session, setSession] = useState<AssignSession | null | undefined>(undefined); // undefined = not read yet
   const [access, setAccess]   = useState<Access>({ status: "checking" });
-  const [badLogin, setBadLogin] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [retry, setRetry]     = useState(0);
   const [tasksVersion, setTasksVersion] = useState(0);
   const router = useRouter();
 
-  useEffect(() => { setSession(loadSession()); }, []);
+  // Firebase keeps the sign-in; the old Google-button session in localStorage is no longer used
+  useEffect(() => {
+    clearSession();
+    let first = true;
+    return onAuthStateChanged(auth, (u) => {
+      const s: AssignSession | null = u?.email
+        ? { email: u.email.trim().toLowerCase(), name: u.displayName || u.email, picture: u.photoURL ?? undefined, expiresAt: Number.MAX_SAFE_INTEGER }
+        : null;
+      // a fresh sign-in (not a page load that was already signed in) lands on the Dashboard;
+      // links that carry their own target (?edit=…) are kept
+      if (s && !first && !window.location.search) router.replace("/dashboard");
+      first = false;
+      setLoginError(null);
+      setSession(s);
+    });
+  }, [router]);
 
   useEffect(() => {
     if (!session) return;
@@ -133,30 +132,23 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
     return () => { alive = false; };
   }, [session, retry]);
 
-  // once signed in, pull tasks submitted on other devices (and push ones only this browser has)
+  // once allowed, follow the shared tasks live; the first snapshot also uploads what only this browser has
   const allowed = access.status === "allowed";
   useEffect(() => {
     if (!allowed) return;
-    let alive = true;
-    syncWebTasks().then((n) => { if (alive && n > 0) setTasksVersion((v) => v + 1); }).catch(() => {});
-    return () => { alive = false; };
+    let first = true;
+    return subscribeWebTasks((tasks) => {
+      if (mergeRemoteTasks(tasks) > 0) setTasksVersion((v) => v + 1);
+      if (first) {
+        first = false;
+        uploadMissingTasks(new Set(tasks.map((t) => t.id)))
+          .then((n) => { if (n > 0) setTasksVersion((v) => v + 1); })
+          .catch(() => {});
+      }
+    });
   }, [allowed]);
 
-  const onCredential = useCallback((credential: string) => {
-    const s = sessionFromCredential(credential);
-    if (!s) { setBadLogin(true); return; }
-    setBadLogin(false);
-    saveSession(s);
-    setSession(s);
-    // a fresh sign-in lands on the Dashboard; links that carry their own target (?edit=…) are kept
-    if (!window.location.search) router.replace("/dashboard");
-  }, [router]);
-
-  const signOut = useCallback(() => {
-    clearSession();
-    setSession(null);
-    window.google?.accounts.id.disableAutoSelect?.();
-  }, []);
+  const signOut = useCallback(() => { void fbSignOut(auth); }, []);
 
   // full-screen split layout for every not-signed-in state: brand panel left, message + action right
   const card = (title: string, desc: React.ReactNode, action?: React.ReactNode, tone: "default" | "warn" = "default") => (
@@ -204,11 +196,7 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
   let state: AuthState;
   let body: React.ReactNode;
 
-  if (!GOOGLE_CLIENT_ID) {
-    state = { status: "error", signOut };
-    body = card("ยังไม่ได้ตั้งค่า Google Login",
-      <>ตั้งค่า <code className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--bg-page)" }}>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> ใน <code className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--bg-page)" }}>.env.local</code> แล้วรีสตาร์ท dev server</>);
-  } else if (session === undefined) {
+  if (session === undefined) {
     state = { status: "loading", signOut };
     body = <div className="min-h-screen" style={{ background: "var(--bg-page)" }} />;
   } else if (session === null) {
@@ -216,8 +204,8 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
     body = card("ยินดีต้อนรับ",
       "เข้าสู่ระบบด้วยบัญชี Google ที่ลงทะเบียนไว้ในรายชื่อ Notion",
       <>
-        <GoogleButton onCredential={onCredential} />
-        {badLogin && <p className="text-xs font-semibold" style={{ color: "#DC2626" }} role="alert">เข้าสู่ระบบไม่สำเร็จ ลองใหม่อีกครั้ง</p>}
+        <GoogleButton onError={setLoginError} />
+        {loginError && <p className="text-xs font-semibold" style={{ color: "var(--danger)" }} role="alert">{loginError}</p>}
       </>);
   } else if (access.status === "checking") {
     state = { status: "checking", user: session, signOut };
