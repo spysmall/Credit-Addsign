@@ -1,11 +1,13 @@
 /**
  * Task assignment (web form replacing the Notion form).
- * Local-only for now: tasks are kept in localStorage per month.
+ * Tasks are kept in localStorage per month and mirrored to the shared "Web Tasks" sheet
+ * (lib/sheetWebTasks.ts), which every signed-in browser merges back in.
  * Field names mirror the Notion form so they can be pushed there later.
  */
 import type { DistConfig, DistTeam } from "./distribution";
 import type { TeamUsage } from "./sheetTasks";
 import type { RequestTypeKey } from "./priceTable";
+import { fetchWebTasks, saveTaskToSheet } from "./sheetWebTasks";
 
 export const PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
 
@@ -93,7 +95,8 @@ export interface AssignedTask {
   projects: string[];
   createdBy: string;      // สร้างโดย (display name)
   createdByEmail?: string; // สร้างโดย — Notion account email, to map to a Notion user later
-  owner: string;          // ชื่อเจ้าของงาน
+  owner: string;          // ชื่อเจ้าของงาน (text sent to Notion, e.g. "GP : Name")
+  ownerEmail?: string;    // the owner's account, so the task also shows in their "งานของฉัน"
   refFiles: { name: string; size: number }[];
   link: string;           // Link ไฟล์งาน&ความต้องการ
   objective: string;
@@ -111,6 +114,7 @@ export interface AssignedTask {
   notionCheckedAt?: string; // ISO time the status was last read
   cancelled?: boolean;     // the Notion page was moved to trash → task is void and its credit is returned
   cancelledAt?: string;
+  updatedAt?: string;      // ISO time of the last change; the newer copy wins when merging with the shared sheet
 }
 
 /** Notion page id (32 hex) from a page URL. */
@@ -130,14 +134,61 @@ export function loadAssigned(year: number, month: number): AssignedTask[] {
   }
 }
 
+/** Every month that has tasks stored in this browser, newest first. */
+export function assignedMonths(): { year: number; month: number }[] {
+  if (typeof window === "undefined") return [];
+  const out: { year: number; month: number }[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const m = localStorage.key(i)?.match(/^credit-assigned-v1-(\d{4})-(\d{1,2})$/);
+    if (m) out.push({ year: Number(m[1]), month: Number(m[2]) });
+  }
+  return out.sort((a, b) => b.year - a.year || b.month - a.month);
+}
+
 function saveAssigned(year: number, month: number, tasks: AssignedTask[]) {
   localStorage.setItem(KEY(year, month), JSON.stringify(tasks));
 }
 
 export function addAssigned(task: AssignedTask) {
+  const t = { ...task, updatedAt: new Date().toISOString() };
   // re-read right before writing so a second tab can't be overwritten
   const current = loadAssigned(task.year, task.month);
-  saveAssigned(task.year, task.month, [...current, task]);
+  saveAssigned(task.year, task.month, [...current, t]);
+  void saveTaskToSheet(t);
+}
+
+/**
+ * Pull the shared "Web Tasks" sheet into this browser's store (newer copy wins), so tasks
+ * submitted on other devices count toward credit and show up in "งานของฉัน".
+ * Returns how many tasks were added or replaced.
+ */
+export async function syncWebTasks(): Promise<number> {
+  const remote = await fetchWebTasks();
+  let changed = 0;
+  const byMonth = new Map<string, AssignedTask[]>();
+  for (const t of remote) {
+    const k = `${t.year}-${t.month}`;
+    byMonth.set(k, [...(byMonth.get(k) ?? []), t]);
+  }
+  for (const list of byMonth.values()) {
+    const { year, month } = list[0];
+    const local = loadAssigned(year, month);
+    const index = new Map(local.map((t, i) => [t.id, i]));
+    let monthChanged = 0;
+    for (const t of list) {
+      const i = index.get(t.id);
+      if (i === undefined) { local.push(t); monthChanged++; }
+      else if ((t.updatedAt ?? "") > (local[i].updatedAt ?? "")) { local[i] = t; monthChanged++; }
+    }
+    if (monthChanged) saveAssigned(year, month, local);
+    changed += monthChanged;
+  }
+  // tasks only this browser has (e.g. made before sharing existed) → upload them
+  const remoteIds = new Set(remote.map((t) => t.id));
+  for (const { year, month } of assignedMonths()) {
+    for (const t of loadAssigned(year, month)) if (!remoteIds.has(t.id)) void saveTaskToSheet(t);
+  }
+  return changed;
 }
 
 /**
@@ -150,8 +201,18 @@ const countsLocally = (t: AssignedTask) => !t.cancelled && (
   !t.notionPushedAt || Date.now() - new Date(t.notionPushedAt).getTime() < NOTION_SYNC_GRACE_HOURS * 3_600_000);
 
 export function updateAssigned(year: number, month: number, id: string, patch: Partial<AssignedTask>) {
-  saveAssigned(year, month, loadAssigned(year, month).map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  let updated: AssignedTask | undefined;
+  saveAssigned(year, month, loadAssigned(year, month).map((t) => {
+    if (t.id !== id) return t;
+    updated = { ...t, ...patch, updatedAt: new Date().toISOString() };
+    return updated;
+  }));
+  if (updated) void saveTaskToSheet(updated);
 }
+
+/** Is this task mine — I submitted it, I'm its "สร้างโดย", or I'm its owner? */
+export const isMyTask = (t: AssignedTask, email: string) =>
+  t.creatorEmail === email || t.createdByEmail === email || t.ownerEmail === email;
 
 export function cancelAssigned(year: number, month: number, id: string) {
   saveAssigned(year, month, loadAssigned(year, month).filter((t) => t.id !== id));

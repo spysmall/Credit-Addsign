@@ -307,7 +307,8 @@ const CMP = "minmax(0,1fr) 76px 76px 84px";
                           const isEditing = editingId === team.id;
                           const off = team.pct <= 0;
                           return (
-                            <div key={team.id} className="grid items-center px-5 h-[26px] [@media(min-height:860px)]:h-7 text-sm" style={{ gridTemplateColumns: DIST }}>
+                            <div key={team.id} className="grid items-center px-5 h-[26px] [@media(min-height:860px)]:h-7 text-sm border-t transition-colors hover:bg-[var(--accent-light)]"
+                              style={{ gridTemplateColumns: DIST, borderColor: "var(--border)" }}>
                               <span className="truncate pl-[18px]" style={{ color: off ? "var(--text-muted)" : "var(--text-secondary)" }} title={team.name}>{team.name}</span>
                               <span className="flex justify-end">
                                 {isEditing ? (

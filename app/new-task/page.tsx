@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PriceCombobox from "@/components/PriceCombobox";
 import PersonCombobox, { Person } from "@/components/PersonCombobox";
 import AssignGate, { useAssignUser } from "@/components/AssignGate";
-import { NOTION_BRIDGE_URL, pushTaskToNotion } from "@/lib/notionBridge";
+import { NOTION_ENABLED, pushTaskToNotion } from "@/lib/notionBridge";
 import { getSavedTeam, saveTeam } from "@/lib/assignSession";
 import { loadDistConfig, DistConfig } from "@/lib/distribution";
 import { fetchDistFromSheet } from "@/lib/sheetDistribution";
@@ -64,7 +64,7 @@ function NewTaskForm() {
   const [priority, setPriority]     = useState("Normal");
   const [projects, setProjects]     = useState<string[]>([]);
   const [createdBy, setCreatedBy]   = useState<Person | null>(me);
-  const [owner, setOwner]           = useState("");
+  const [owner, setOwner]           = useState<Person | null>(me);
   const [teamCreator, setTeamCreator] = useState(defaultTeam);
   const [company, setCompany]       = useState("");
   const [lines, setLines]           = useState<LineDraft[]>([{ id: 1, code: "", requestType: "new", qty: 1 }]);
@@ -207,7 +207,7 @@ function NewTaskForm() {
     title:       title.trim() ? "" : "กรอกชื่อชิ้นงาน",
     projects:    projects.length ? "" : "เลือกอย่างน้อย 1 โปรเจกต์",
     createdBy:   createdBy ? "" : "เลือกผู้สร้างจากรายชื่อ",
-    owner:       owner.trim() ? "" : "กรอกชื่อเจ้าของงาน เช่น GP : ชื่อ",
+    owner:       owner ? "" : "เลือกเจ้าของงานจากรายชื่อ",
     teamCreator: teamCreator ? "" : "เลือกทีมผู้สร้าง Task",
     company:     company ? "" : "เลือกบริษัท",
     lines:       lineErrors.some(Boolean) ? "ตรวจรายการงานให้ครบ" : "",
@@ -272,7 +272,7 @@ function NewTaskForm() {
   }
 
   function resetForm() {
-    setTitle(""); setPriority("Normal"); setProjects([]); setOwner(""); setTeamCreator(sheetTeam ?? getSavedTeam(user.email) ?? ""); setCompany("");
+    setTitle(""); setPriority("Normal"); setProjects([]); setOwner(me); setTeamCreator(sheetTeam ?? getSavedTeam(user.email) ?? ""); setCompany("");
     setLines([{ id: nextLineId.current++, code: "", requestType: "new", qty: 1 }]);
     setTypesExtra([]); setTypesOff([]); setSummaryDraft(""); setSummaryEdited(false); setLink(""); setObjective("");
     setNeedBy(""); setUseDate(""); setFiles([]); setTried(false); setStep(1);
@@ -294,7 +294,9 @@ function NewTaskForm() {
       year, month,
       cardId: resolved.card.id,
       creatorEmail: user.email,
-      title: `${titlePrefix}${title.trim()}`, priority, projects, createdBy: createdBy!.name, createdByEmail: createdBy!.email, owner: owner.trim(),
+      title: `${titlePrefix}${title.trim()}`, priority, projects, createdBy: createdBy!.name, createdByEmail: createdBy!.email,
+      // Notion keeps the "Team : Name" text; the email puts the task in the owner's "งานของฉัน"
+      owner: `${teamDisplay(teamCreator)} : ${owner!.name}`, ownerEmail: owner!.email,
       refFiles: files, link: link.trim(), objective: objective.trim(), summary: summary.trim(),
       workTypes, useCredit, needBy, useDate, teamCreator, company,
       lines: lines.map((l, i) => {
@@ -312,8 +314,8 @@ function NewTaskForm() {
       return;
     }
     const added = `แอดงาน "${task.title}" แล้ว · หักเครดิต ${fmt(task.useCredit)} M Coin`;
-    setNotice({ kind: "ok", text: NOTION_BRIDGE_URL ? `${added} · กำลังสร้าง Task ใน Notion…` : added });
-    if (NOTION_BRIDGE_URL) {
+    setNotice({ kind: "ok", text: NOTION_ENABLED ? `${added} · กำลังสร้าง Task ใน Notion…` : added });
+    if (NOTION_ENABLED) {
       pushTaskToNotion(task)
         .then(({ url }) => {
           updateAssigned(task.year, task.month, task.id, { notionUrl: url, notionPushedAt: new Date().toISOString() });
@@ -420,8 +422,9 @@ function NewTaskForm() {
                   <PersonCombobox people={people} value={createdBy} onChange={setCreatedBy} invalid={tried && !!errors.createdBy}
                     placeholder="พิมพ์ค้นหาชื่อ" inputClassName={inputCls} inputStyle={inputStyle} />
                 </Field>
-                <Field label="ชื่อเจ้าของงาน" required error={show("owner")} hint="เช่น GP : Name — ชื่อดิสคอร์สในบริษัท">
-                  <input className={inputCls} style={inputStyle} value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="GP : Name" />
+                <Field label="เจ้าของงาน" required error={show("owner")} hint="คนที่ใช้งานชิ้นนี้ · งานจะขึ้นใน “งานของฉัน” ของเขาด้วย">
+                  <PersonCombobox people={people} value={owner} onChange={setOwner} invalid={tried && !!errors.owner}
+                    placeholder="พิมพ์ค้นหาชื่อ" inputClassName={inputCls} inputStyle={inputStyle} />
                 </Field>
               </div>
             </Section>}

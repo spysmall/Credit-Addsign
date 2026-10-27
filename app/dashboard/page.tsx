@@ -73,7 +73,8 @@ export default function DashboardPage() {
   const total = teamTotalCredits(year, month, leaveData);
 
   // Tasks added through the web form (/new-task) — charged per team card
-  useEffect(() => { setWebUsage(webUsageByCard(year, month)); }, [year, month]);
+  const tasksVersion = auth.status === "allowed" ? auth.tasksVersion : 0;
+  useEffect(() => { setWebUsage(webUsageByCard(year, month)); }, [year, month, tasksVersion]);
 
   useEffect(() => {
     setLeaveData({});

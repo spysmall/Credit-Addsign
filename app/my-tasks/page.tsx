@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import MonthSelector from "@/components/MonthSelector";
 import AssignGate, { useAssignUser } from "@/components/AssignGate";
 import { REQUEST_TYPES } from "@/lib/priceTable";
-import { NOTION_BRIDGE_URL, fetchNotionStatuses, pushTaskToNotion } from "@/lib/notionBridge";
-import { AssignedTask, loadAssigned, notionPageId, projectDisplay, teamDisplay, updateAssigned } from "@/lib/taskAssign";
+import { NOTION_ENABLED, fetchNotionStatuses, pushTaskToNotion } from "@/lib/notionBridge";
+import { AssignedTask, assignedMonths, isMyTask, loadAssigned, notionPageId, projectDisplay, teamDisplay, updateAssigned } from "@/lib/taskAssign";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const fmt = (n: number) => (Math.round(n * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -15,6 +14,15 @@ const formatThaiDate = (iso: string) => {
   return `${d} ${THAI_MONTHS_SHORT[m - 1]} ${y + 543}`;
 };
 const PRIORITY_COLOR: Record<string, string> = { Low: "#6B7280", Normal: "#2563EB", High: "#D97706", Urgent: "#DC2626" };
+
+/** Human-readable reason a Notion push failed. */
+function notionErrorText(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) return "ติดต่อตัวเชื่อม Notion ไม่ได้ (ถ้าใช้ในเครื่อง ให้เปิด npm run notion:bridge)";
+  if (/script properties are not set/i.test(msg)) return "ยังไม่ได้ตั้ง Notion token ใน Apps Script";
+  if (/is not an option of/i.test(msg)) return `ตัวเลือกไม่ตรงกับใน Notion: ${msg}`;
+  return `${msg} · ลองอีกครั้ง หากยังไม่ได้ให้แจ้งทีมดูแลระบบ`;
+}
 
 /** Work status shown on each card, from the Notion "Status" property (plus our own "cancelled" when the page was trashed). */
 function statusOf(t: AssignedTask): { label: string; fg: string; bg: string } {
@@ -57,20 +65,18 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 function MyTasks() {
   const { user, isSuperAdmin } = useAssignUser();
   const [showAll, setShowAll] = useState(false);
-  const now = new Date();
-  const [year, setYear]   = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
   const [tick, setTick]   = useState(0);
   const [open, setOpen]   = useState<string | null>(null);
   const [pushing, setPushing] = useState<string | null>(null);
-  const [pushError, setPushError] = useState<string | null>(null);
+  const [pushError, setPushError] = useState<{ id: string; reason: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState(false);
 
   /** Read each task's current Notion status; a page moved to trash cancels the task and returns its credit. */
-  function checkStatuses(y = year, m = month) {
-    const sent = loadAssigned(y, m).filter((t) => !t.cancelled && notionPageId(t.notionUrl));
-    if (!NOTION_BRIDGE_URL || sent.length === 0) return;
+  function checkStatuses() {
+    const sent = assignedMonths().flatMap(({ year, month }) => loadAssigned(year, month))
+      .filter((t) => !t.cancelled && notionPageId(t.notionUrl));
+    if (!NOTION_ENABLED || sent.length === 0) return;
     setChecking(true);
     setCheckError(false);
     fetchNotionStatuses(sent.map((t) => notionPageId(t.notionUrl)!))
@@ -79,9 +85,9 @@ function MyTasks() {
         for (const t of sent) {
           const r = results[notionPageId(t.notionUrl)!];
           if (!r) continue;
-          if (r.inTrash) updateAssigned(y, m, t.id, { cancelled: true, cancelledAt: at, notionStatus: r.status ?? undefined, notionCheckedAt: at });
-          else if (r.notFound) updateAssigned(y, m, t.id, { notionStatus: "__notfound", notionCheckedAt: at });
-          else if (r.status) updateAssigned(y, m, t.id, { notionStatus: r.status, notionCheckedAt: at });
+          if (r.inTrash) updateAssigned(t.year, t.month, t.id, { cancelled: true, cancelledAt: at, notionStatus: r.status ?? undefined, notionCheckedAt: at });
+          else if (r.notFound) updateAssigned(t.year, t.month, t.id, { notionStatus: "__notfound", notionCheckedAt: at });
+          else if (r.status) updateAssigned(t.year, t.month, t.id, { notionStatus: r.status, notionCheckedAt: at });
         }
         setTick((n) => n + 1);
       })
@@ -89,22 +95,28 @@ function MyTasks() {
       .finally(() => setChecking(false));
   }
 
-  // refresh statuses whenever the month changes
-  useEffect(() => { checkStatuses(year, month); }, [year, month]); // eslint-disable-line react-hooks/exhaustive-deps
+  // refresh statuses once when the page opens
+  useEffect(() => { checkStatuses(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // tick forces a re-read after a cancel
   void tick;
   // everything I created, whichever team it was filed under
-  const tasks: AssignedTask[] = loadAssigned(year, month)
-    .filter((t) => (isSuperAdmin && showAll) || t.creatorEmail === user.email || t.createdByEmail === user.email)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt)); // newest first
-  // credits used, split by the team they were charged to (biggest first)
-  const byTeam = [...tasks.filter((t) => !t.cancelled).reduce((m, t) => {
-    const e = m.get(t.teamCreator) ?? { credit: 0, count: 0 };
-    return m.set(t.teamCreator, { credit: e.credit + t.useCredit, count: e.count + 1 });
-  }, new Map<string, { credit: number; count: number }>())]
-    .map(([team, e]) => ({ team, credit: Math.round(e.credit * 100) / 100, count: e.count }))
-    .sort((a, b) => b.credit - a.credit);
+  // grouped by the month the credit was charged to, newest month first; newest task first inside
+  const groups = assignedMonths()
+    .map(({ year, month }) => {
+      const tasks = loadAssigned(year, month)
+        .filter((t) => (isSuperAdmin && showAll) || isMyTask(t, user.email))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      // credits used that month, split by the team they were charged to (biggest first)
+      const byTeam = [...tasks.filter((t) => !t.cancelled).reduce((m, t) => {
+        const e = m.get(t.teamCreator) ?? { credit: 0, count: 0 };
+        return m.set(t.teamCreator, { credit: e.credit + t.useCredit, count: e.count + 1 });
+      }, new Map<string, { credit: number; count: number }>())]
+        .map(([team, e]) => ({ team, credit: Math.round(e.credit * 100) / 100, count: e.count }))
+        .sort((a, b) => b.credit - a.credit);
+      return { year, month, tasks, byTeam };
+    })
+    .filter((g) => g.tasks.length > 0);
 
   function sendToNotion(t: AssignedTask) {
     setPushing(t.id);
@@ -114,7 +126,7 @@ function MyTasks() {
         updateAssigned(t.year, t.month, t.id, { notionUrl: url, notionPushedAt: new Date().toISOString() });
         setTick((n) => n + 1);
       })
-      .catch(() => setPushError(t.id))
+      .catch((err: unknown) => setPushError({ id: t.id, reason: notionErrorText(err) }))
       .finally(() => setPushing(null));
   }
 
@@ -140,7 +152,12 @@ function MyTasks() {
                 <p className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                   <span className="inline-flex items-center gap-1.5"><Icon name="calendar" size={14} />ต้องการ {formatThaiDate(t.needBy)}</span>
                   <span className="inline-flex items-center gap-1.5"><Icon name="target" size={14} />ใช้งานจริง {formatThaiDate(t.useDate)}</span>
-                  <span className="inline-flex items-center gap-1.5"><Icon name="user" size={14} />{t.createdBy}{showAll && t.creatorEmail ? ` · ${t.creatorEmail}` : ""}</span>
+                  <span className="inline-flex items-center gap-1.5"><Icon name="user" size={14} />
+                    เจ้าของ {t.owner.split(" : ").pop()}
+                    {/* added on someone else's behalf → say who added it */}
+                    {t.ownerEmail && t.ownerEmail !== t.createdByEmail && <span>· แอดโดย {t.createdBy}</span>}
+                    {showAll && t.creatorEmail ? ` · ${t.creatorEmail}` : ""}
+                  </span>
                 </p>
               </div>
               <div className="shrink-0 flex flex-col items-end gap-2">
@@ -198,7 +215,7 @@ function MyTasks() {
                 <Group icon="notion" title="สถานะใน Notion">
                   {t.cancelled && (
                     <p className="mb-2 text-sm font-semibold" style={{ color: "var(--danger)" }}>
-                      งานนี้ถูกลบ (ย้ายไปถังขยะ) ใน Notion จึงเปลี่ยนเป็น "ยกเลิก" และคืนเครดิต {fmt(t.useCredit)} M Coin ให้ทีมแล้ว
+                      งานนี้ถูกลบ (ย้ายไปถังขยะ) ใน Notion จึงเปลี่ยนเป็น “ยกเลิก” และคืนเครดิต {fmt(t.useCredit)} M Coin ให้ทีมแล้ว
                     </p>
                   )}
                   {t.notionCheckedAt && (
@@ -213,15 +230,15 @@ function MyTasks() {
                       <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--success)" }} aria-hidden />
                       ส่งแล้ว · เปิดใน Notion ↗
                     </a>
-                  ) : NOTION_BRIDGE_URL ? (
+                  ) : NOTION_ENABLED ? (
                     <div className="flex items-center gap-3 flex-wrap">
                       <button type="button" disabled={pushing === t.id} onClick={() => sendToNotion(t)}
                         className="rounded-lg border px-3 py-2 text-xs font-semibold transition-shadow hover:shadow-sm disabled:opacity-50"
                         style={{ borderColor: "var(--accent-strong)", color: "var(--accent-strong)" }}>
                         {pushing === t.id ? "กำลังส่ง…" : "ส่งเข้า Notion"}
                       </button>
-                      {pushError === t.id && (
-                        <span className="text-xs font-semibold" style={{ color: "var(--danger)" }} role="alert">ส่งเข้า Notion ไม่สำเร็จ · ลองอีกครั้ง หากยังไม่ได้ให้แจ้งทีมดูแลระบบ</span>
+                      {pushError?.id === t.id && (
+                        <span className="text-xs font-semibold" style={{ color: "var(--danger)" }} role="alert">ส่งเข้า Notion ไม่สำเร็จ · {pushError.reason}</span>
                       )}
                     </div>
                   ) : (
@@ -251,7 +268,7 @@ function MyTasks() {
             งานของ<span style={{ color: "var(--accent)" }}>ฉัน</span>
           </h1>
           <p className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>
-            งานทั้งหมดที่คุณส่งรีเควส เรียงจากใหม่ไปเก่า · ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้ (ยังไม่แชร์ข้ามเครื่อง)
+            งานทั้งหมดที่คุณส่งรีเควส แยกตามเดือนที่ใช้เครดิต ใหม่อยู่บน · ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้ (ยังไม่แชร์ข้ามเครื่อง)
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
@@ -262,7 +279,7 @@ function MyTasks() {
               ดูงานของทุกคน (Super admin)
             </label>
           )}
-          {NOTION_BRIDGE_URL && (
+          {NOTION_ENABLED && (
             <button type="button" onClick={() => checkStatuses()} disabled={checking}
               className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-colors hover:bg-black/5 disabled:opacity-60"
               style={{ borderColor: checkError ? "var(--danger-line)" : "var(--border)", background: "var(--bg-card)", color: checkError ? "var(--danger)" : "var(--text-secondary)" }}>
@@ -271,43 +288,44 @@ function MyTasks() {
               {checking ? "กำลังตรวจสถานะ…" : checkError ? "ตรวจสถานะไม่สำเร็จ · ลองใหม่" : "ตรวจสถานะจาก Notion"}
             </button>
           )}
-          <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); setOpen(null); }} />
         </div>
       </div>
 
       {(
         <>
-          <div className="flex flex-wrap gap-3 mb-6">
-            {byTeam.map((b) => (
-              <Stat key={b.team} label={`เครดิตที่ใช้ · ทีม ${teamDisplay(b.team)}`} value={fmt(b.credit)} unit="M Coin" note={`${b.count} งาน`} accent />
-            ))}
-          </div>
-
-          {tasks.length === 0 ? (
+          {groups.length === 0 ? (
             <div className="rounded-2xl border px-5 py-10 text-center" style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
-              <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>คุณยังไม่ได้ส่งรีเควสใน {THAI_MONTHS_SHORT[month - 1]} {year + 543}</p>
+              <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>คุณยังไม่ได้ส่งรีเควส</p>
               <Link href="/new-task" className="inline-block rounded-xl px-5 py-2.5 text-sm font-bold text-white" style={{ background: "var(--accent)" }}>+ ส่งรีเควสใหม่</Link>
             </div>
           ) : (
-            <ul className="flex flex-col gap-3">
-              {tasks.map((t) => renderTask(t))}
-            </ul>
+            <div className="flex flex-col gap-10">
+              {groups.map((g) => (
+                <section key={`${g.year}-${g.month}`} aria-label={`${THAI_MONTHS_SHORT[g.month - 1]} ${g.year + 543}`}>
+                  <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--border)" }}>
+                    <h2 className="text-xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
+                      {THAI_MONTHS_SHORT[g.month - 1]} <span className="num" style={{ color: "var(--accent-strong)" }}>{g.year + 543}</span>
+                      <span className="ml-2 text-sm font-normal" style={{ color: "var(--text-secondary)" }}>{g.tasks.length} งาน</span>
+                    </h2>
+                    <div className="flex flex-wrap gap-2">
+                      {g.byTeam.map((b) => (
+                        <span key={b.team} className="num inline-flex items-baseline gap-1.5 rounded-full border px-3 py-1 text-xs"
+                          style={{ borderColor: "var(--border)", background: "var(--bg-card)", color: "var(--text-secondary)" }}>
+                          ทีม {teamDisplay(b.team)}
+                          <b className="text-sm font-bold" style={{ color: "var(--accent-strong)" }}>{fmt(b.credit)}</b> M Coin · {b.count} งาน
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <ul className="flex flex-col gap-3">
+                    {g.tasks.map((t) => renderTask(t))}
+                  </ul>
+                </section>
+              ))}
+            </div>
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function Stat({ label, value, unit, accent, note }: { label: string; value: string; unit?: string; accent?: boolean; note?: string }) {
-  return (
-    <div className="rounded-xl border px-4 py-3 min-w-[150px]" style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
-      <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{label}</p>
-      <p className="flex items-baseline gap-1.5 mt-0.5">
-        <span className="num text-2xl font-bold" style={{ color: accent ? "var(--accent-strong)" : "var(--text-primary)" }}>{value}</span>
-        {unit && <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{unit}</span>}
-      </p>
-      {note && <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>{note}</p>}
     </div>
   );
 }

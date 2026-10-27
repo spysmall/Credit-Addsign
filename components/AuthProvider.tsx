@@ -5,6 +5,8 @@ import {
   AssignSession, GOOGLE_CLIENT_ID, clearSession, isSuperAdmin, loadSession, saveSession, sessionFromCredential,
 } from "@/lib/assignSession";
 import { fetchAllowedUsers } from "@/lib/sheetUsers";
+import { IS_BETA } from "@/lib/appEnv";
+import { syncWebTasks } from "@/lib/taskAssign";
 
 export interface AuthUser {
   user: AssignSession;
@@ -16,6 +18,8 @@ export interface AuthUser {
   people: { email: string; name: string }[];
   /** super admin: no PIN, sees everything */
   isSuperAdmin: boolean;
+  /** bumps whenever tasks from the shared "Web Tasks" sheet change this browser's copy — use as an effect dependency */
+  tasksVersion: number;
   signOut: () => void;
 }
 
@@ -77,14 +81,16 @@ function GoogleButton({ onCredential }: { onCredential: (credential: string) => 
       .then(() => {
         if (!alive || !ref.current || !window.google) return;
         window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: (r) => cb.current(r.credential) });
-        window.google.accounts.id.renderButton(ref.current, { theme: "outline", size: "large", text: "signin_with", shape: "pill", locale: "th", width: 280 });
+        window.google.accounts.id.renderButton(ref.current, { theme: "outline", size: "large", text: "signin_with", shape: "pill", locale: "th",
+          // Google caps the button at 400px; fill the container up to that
+          width: Math.min(400, Math.max(200, Math.floor(ref.current.getBoundingClientRect().width))) });
       })
       .catch(() => { if (alive) setFailed(true); });
     return () => { alive = false; };
   }, []);
 
   if (failed) return <p className="text-sm font-semibold" style={{ color: "#DC2626" }}>โหลดปุ่ม Google ไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วรีเฟรชหน้า</p>;
-  return <div ref={ref} className="min-h-[44px] flex justify-center" />;
+  return <div ref={ref} className="w-full min-h-[44px] [&>div]:w-full" />;
 }
 
 // ── Provider: the whole site requires Google sign-in with an allow-listed email ──
@@ -99,6 +105,7 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
   const [access, setAccess]   = useState<Access>({ status: "checking" });
   const [badLogin, setBadLogin] = useState(false);
   const [retry, setRetry]     = useState(0);
+  const [tasksVersion, setTasksVersion] = useState(0);
 
   useEffect(() => { setSession(loadSession()); }, []);
 
@@ -124,6 +131,15 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
     return () => { alive = false; };
   }, [session, retry]);
 
+  // once signed in, pull tasks submitted on other devices (and push ones only this browser has)
+  const allowed = access.status === "allowed";
+  useEffect(() => {
+    if (!allowed) return;
+    let alive = true;
+    syncWebTasks().then((n) => { if (alive && n > 0) setTasksVersion((v) => v + 1); }).catch(() => {});
+    return () => { alive = false; };
+  }, [allowed]);
+
   const onCredential = useCallback((credential: string) => {
     const s = sessionFromCredential(credential);
     if (!s) { setBadLogin(true); return; }
@@ -138,17 +154,46 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
     window.google?.accounts.id.disableAutoSelect?.();
   }, []);
 
-  const card = (title: string, desc: React.ReactNode, action?: React.ReactNode) => (
-    <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        <div className="max-w-md mx-auto mt-10 rounded-2xl border p-6 sm:p-8 text-center flex flex-col items-center gap-4"
-          style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl" style={{ background: "var(--accent-light)" }}>🔒</div>
-          <h1 className="text-xl font-black" style={{ color: "var(--text-primary)" }}>{title}</h1>
-          <div className="text-sm" style={{ color: "var(--text-secondary)" }}>{desc}</div>
-          {action}
+  // full-screen split layout for every not-signed-in state: brand panel left, message + action right
+  const card = (title: string, desc: React.ReactNode, action?: React.ReactNode, tone: "default" | "warn" = "default") => (
+    <div className="min-h-screen grid grid-rows-[auto_1fr] lg:grid-rows-1 lg:grid-cols-[1.1fr_1fr]" style={{ background: "var(--bg-card)" }}>
+      <aside className="relative overflow-hidden text-white px-6 py-6 sm:px-10 sm:py-8 lg:px-14 lg:py-12 flex flex-col"
+        style={{ background: [
+          "radial-gradient(110% 75% at 100% 100%, #E8511E 0%, rgba(232,81,30,0.55) 35%, rgba(232,81,30,0) 70%)",
+          "radial-gradient(60% 45% at 90% 0%, rgba(255,138,99,0.28) 0%, rgba(255,138,99,0) 70%)",
+          "linear-gradient(160deg, #141414 0%, #1C1410 50%, #3A1608 100%)",
+        ].join(", ") }}>
+        <div className="relative flex items-center gap-2.5">
+          <span className="w-9 h-9 rounded-xl flex items-center justify-center font-black" style={{ background: "#fff", color: "var(--accent-strong)" }}>M</span>
+          <span className="font-bold tracking-wide">Multimedia</span>
+          {IS_BETA && <span className="rounded px-1.5 py-0.5 text-[11px] font-bold leading-none" style={{ background: "#FCD34D", color: "#1A1A1A" }}>BETA</span>}
         </div>
-      </div>
+        <div className="relative hidden lg:block mt-auto mb-auto">
+          <h2 className="text-5xl font-bold leading-[1.1] tracking-tight">Design Credit<br />System</h2>
+          <p className="mt-4 text-base" style={{ color: "rgba(255,255,255,0.8)" }}>ส่งรีเควสงาน · ดูเครดิตทีม · ติดตามสถานะงาน</p>
+          <ul className="mt-8 flex flex-wrap gap-2 text-sm">
+            {["คิดเครดิตจากตารางราคาอัตโนมัติ", "หักจากถังรวมของทีมทันที", "เห็นสถานะงานจาก Notion"].map((t) => (
+              <li key={t} className="rounded-full border px-3.5 py-1.5 backdrop-blur-sm" style={{ background: "rgba(255,255,255,0.1)", borderColor: "rgba(255,255,255,0.18)" }}>{t}</li>
+            ))}
+          </ul>
+        </div>
+        <p className="relative hidden lg:block text-xs" style={{ color: "rgba(255,255,255,0.7)" }}>Team Multimedia</p>
+      </aside>
+      <main className="flex items-center justify-center px-6 py-12 sm:px-10">
+        <div className="w-full max-w-sm">
+          {tone === "warn" && (
+            <span className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-2xl text-xl" style={{ background: "var(--warning-bg)" }} aria-hidden>!</span>
+          )}
+          <h1 className="text-3xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>{title}</h1>
+          <div className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>{desc}</div>
+          {action && <div className="mt-8 flex flex-col items-stretch gap-3">{action}</div>}
+          {tone === "default" && (
+            <p className="mt-10 border-t pt-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+              ยังไม่มีสิทธิ์ใช้งาน? ติดต่อ Lead Team Multimedia
+            </p>
+          )}
+        </div>
+      </main>
     </div>
   );
 
@@ -161,11 +206,11 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
       <>ตั้งค่า <code className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--bg-page)" }}>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> ใน <code className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--bg-page)" }}>.env.local</code> แล้วรีสตาร์ท dev server</>);
   } else if (session === undefined) {
     state = { status: "loading", signOut };
-    body = <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }} />;
+    body = <div className="min-h-screen" style={{ background: "var(--bg-page)" }} />;
   } else if (session === null) {
     state = { status: "signed-out", signOut };
-    body = card("เข้าสู่ระบบด้วย Google",
-      "ต้องเข้าสู่ระบบด้วยบัญชี Google ที่ลงทะเบียนไว้ในรายชื่อ (Email Notion) จึงจะดูข้อมูลในระบบนี้ได้",
+    body = card("ยินดีต้อนรับ",
+      "เข้าสู่ระบบด้วยบัญชี Google ที่ลงทะเบียนไว้ในรายชื่อ Notion",
       <>
         <GoogleButton onCredential={onCredential} />
         {badLogin && <p className="text-xs font-semibold" style={{ color: "#DC2626" }} role="alert">เข้าสู่ระบบไม่สำเร็จ ลองใหม่อีกครั้ง</p>}
@@ -177,23 +222,74 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
     state = { status: "error", user: session, signOut };
     body = card("ตรวจสอบสิทธิ์ไม่สำเร็จ", "โหลดรายชื่อผู้ใช้จากชีตไม่ได้ ลองใหม่อีกครั้ง",
       <div className="flex gap-2">
-        <button type="button" onClick={() => setRetry((r) => r + 1)} className="rounded-xl px-5 py-2.5 text-sm font-bold text-white" style={{ background: "var(--accent)" }}>ลองใหม่</button>
+        <button type="button" onClick={() => setRetry((r) => r + 1)} className="btn-primary rounded-xl px-5 py-2.5 text-sm font-bold">ลองใหม่</button>
         <button type="button" onClick={signOut} className="rounded-xl border px-5 py-2.5 text-sm font-bold" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>ออกจากระบบ</button>
-      </div>);
+      </div>, "warn");
   } else if (access.status === "denied") {
     state = { status: "denied", user: session, signOut };
-    body = card("บัญชีนี้ยังไม่มีสิทธิ์ใช้งาน",
-      <><b>{session.email}</b> ไม่อยู่ในรายชื่อผู้ใช้ ติดต่อ Lead เพื่อเพิ่มอีเมลนี้ หรือเข้าสู่ระบบด้วยบัญชีอื่น</>,
-      <button type="button" onClick={signOut} className="rounded-xl px-5 py-2.5 text-sm font-bold text-white" style={{ background: "var(--accent)" }}>ออกจากระบบ</button>);
+    body = card("ยังไม่มีสิทธิ์เข้าใช้งาน",
+      "บัญชีนี้ยังไม่อยู่ในรายชื่อผู้ใช้ของระบบ (Email Notion)",
+      <DeniedPanel session={session} onRetry={() => setRetry((r) => r + 1)} onSignOut={signOut} />, "warn");
   } else {
-    state = { status: "allowed", user: session, sheetTeam: access.team, sheetName: access.name, people: access.people, isSuperAdmin: isSuperAdmin(session.email), signOut };
+    state = { status: "allowed", user: session, sheetTeam: access.team, sheetName: access.name, people: access.people, isSuperAdmin: isSuperAdmin(session.email), tasksVersion, signOut };
     body = children;
   }
 
   return (
     <Ctx.Provider value={state}>
-      {header}
+      {state.status === "allowed" && header}
       {body}
     </Ctx.Provider>
+  );
+}
+
+/** Shown when the signed-in Google account is not on the allowlist sheet. */
+function DeniedPanel({ session, onRetry, onSignOut }: { session: AssignSession; onRetry: () => void; onSignOut: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(session.email).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {});
+  };
+  return (
+    <>
+      {/* the account that was refused */}
+      <div className="flex items-center gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--bg-page)" }}>
+        {session.picture ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={session.picture} alt="" width={40} height={40} referrerPolicy="no-referrer" className="h-10 w-10 shrink-0 rounded-full" />
+        ) : (
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-bold text-white" style={{ background: "var(--accent)" }} aria-hidden>
+            {Array.from(session.name)[0]?.toUpperCase()}
+          </span>
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{session.name}</span>
+          <span className="block truncate text-xs" style={{ color: "var(--text-secondary)" }}>{session.email}</span>
+        </span>
+        <button type="button" onClick={copy} className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold transition-colors hover:bg-black/5"
+          style={{ color: copied ? "var(--success)" : "var(--text-secondary)" }}>
+          {copied ? "✓ คัดลอกแล้ว" : "คัดลอกอีเมล"}
+        </button>
+      </div>
+
+      {/* how to get access */}
+      <ol className="mt-2 flex flex-col gap-2.5 text-sm" style={{ color: "var(--text-secondary)" }}>
+        {[
+          <>ส่งอีเมลด้านบนให้ <b style={{ color: "var(--text-primary)" }}>Lead Team Multimedia</b></>,
+          <>Lead เพิ่มอีเมลนี้ในชีตรายชื่อผู้ใช้ (คอลัมน์ Email Notion)</>,
+          <>กด <b style={{ color: "var(--text-primary)" }}>ตรวจสิทธิ์อีกครั้ง</b> — ไม่ต้องล็อกอินใหม่</>,
+        ].map((t, i) => (
+          <li key={i} className="flex items-start gap-2.5">
+            <span className="num mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: "var(--accent-light)", color: "var(--accent-strong)" }}>{i + 1}</span>
+            <span>{t}</span>
+          </li>
+        ))}
+      </ol>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" onClick={onRetry} className="btn-primary flex-1 rounded-xl px-5 py-2.5 text-sm font-bold">ตรวจสิทธิ์อีกครั้ง</button>
+        <button type="button" onClick={onSignOut} className="flex-1 rounded-xl border px-5 py-2.5 text-sm font-bold transition-colors hover:bg-black/5"
+          style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>ใช้บัญชีอื่น</button>
+      </div>
+    </>
   );
 }
