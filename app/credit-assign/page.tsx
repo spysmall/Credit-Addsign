@@ -14,8 +14,10 @@ import {
 import { fetchAllTaskUsage, TeamUsage } from "@/lib/sheetTasks";
 import { fetchDistFromSheet, saveDistToSheet, flattenConfig, fetchNoteFromSheet, saveNoteToSheet } from "@/lib/sheetDistribution";
 import AdminGate from "@/components/AdminGate";
+import { IS_BETA } from "@/lib/appEnv";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+const SHARE_COLORS = ["#E8511E", "#C8410F", "#F0997B", "#8A2E0C", "#F5C4B3", "#5F5E5A", "#B4B2A9"];
 const notesKey = (y: number, m: number) => `credit-notes-v1-${y}-${m}`;
 
 function prevYM(year: number, month: number) {
@@ -33,8 +35,9 @@ function teamTotalCreditsForMonth(y: number, m: number, leave: Record<string, nu
 }
 
 export default function CreditDistributionPage() {
-  const [year, setYear]   = useState(2026);
-  const [month, setMonth] = useState(7);
+  const today = new Date();
+  const [year, setYear]   = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth() + 1);
 
   const [config, setConfig] = useState<DistConfig>(DEFAULT_DIST_CONFIG);
 
@@ -54,6 +57,9 @@ export default function CreditDistributionPage() {
   // leave hours for current and previous month
   const [leaveData, setLeaveData]         = useState<Record<string, number>>({});
   const [prevLeaveData, setPrevLeaveData] = useState<Record<string, number>>({});
+
+  // teams at 0% are hidden unless asked for, to keep the table short
+  const [showZero, setShowZero] = useState(false);
 
   // previous month sheet data
   const [prevUsage, setPrevUsage]     = useState<Record<string, TeamUsage>>({});
@@ -169,6 +175,7 @@ export default function CreditDistributionPage() {
   }, [year, month]);
 
   const startEdit = (t: DistTeam) => {
+    if (IS_BETA) return;
     setEditingId(t.id);
     setEditVal(String(t.pct));
   };
@@ -183,381 +190,216 @@ export default function CreditDistributionPage() {
 
   // Past month = cannot edit
   const now = new Date();
-  const isPastMonth = year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth() + 1);
+  // the beta test site is read-only, same as a past month
+  const isPastMonth = IS_BETA || year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth() + 1);
+
+  const prevUsedTotal = summaryGroups.reduce((s, g) => Math.round((s + (prevUsage[g]?.used ?? 0)) * 100) / 100, 0);
+  const fmt2 = (n: number) => (Math.round(n * 100) / 100).toLocaleString();
+  const DIST = "minmax(0,1fr) 88px 104px";
+const CMP = "minmax(0,1fr) 76px 76px 84px";
+
+  const syncNow = () => {
+    setSyncStatus("saving");
+    saveDistToSheet(year, month, flattenConfig(config))
+      .then((ok) => setSyncStatus(ok ? "saved" : "error"))
+      .catch(() => setSyncStatus("error"));
+  };
+  const saveNotes = () => {
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    setNoteSyncStatus("saving");
+    localStorage.setItem(notesKey(year, month), notes);
+    saveNoteToSheet(year, month, notes)
+      .then((ok) => setNoteSyncStatus(ok ? "saved" : "error"))
+      .catch(() => setNoteSyncStatus("error"));
+  };
+
+  // flat company list in priority order, each with a colour from the brand ramp for the share bar
+  const companies = config.flatMap((p) => p.companies.map((c) => ({ priority: p, company: c })))
+    .map((x, i) => ({ ...x, pct: x.company.teams.reduce((s, t) => s + t.pct, 0), color: SHARE_COLORS[i % SHARE_COLORS.length] }));
+  const zeroCount = companies.reduce((n, x) => n + x.company.teams.filter((t) => t.pct <= 0).length, 0);
+  const noteStatus = noteSyncStatus === "saving" ? "กำลังบันทึก…" : noteSyncStatus === "saved" ? "✓ บันทึกแล้ว" : noteSyncStatus === "error" ? "บันทึกไม่สำเร็จ" : "";
 
   return (
     <AdminGate>
-    <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    <div className="lg:h-[calc(100vh-57px)] flex flex-col" style={{ background: "var(--bg-page)" }}>
+      <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-5 flex flex-col gap-4 lg:flex-1 lg:min-h-0">
 
-        {/* ── Page Header ── */}
-        <div className="mb-4 sm:mb-6">
-          {/* Top row: label + sync status + month selector */}
-          <div className="flex items-start justify-between gap-4 mb-3 sm:mb-4">
-            <p className="text-xs font-black uppercase tracking-[0.15em] pt-1"
-              style={{ color: "var(--accent)" }}>Credit Distribution</p>
-            <div className="flex items-center gap-3">
-              {syncStatus === "saving" && (
-                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>⏳ กำลังบันทึก…</span>
-              )}
-              {syncStatus === "saved" && (
-                <span className="text-xs font-medium" style={{ color: "#22C55E" }}>✓ บันทึกลง Sheet แล้ว</span>
-              )}
-              {syncStatus === "error" && (
-                <span className="text-xs font-medium" style={{ color: "#EF4444" }}>⚠ บันทึกไม่สำเร็จ</span>
-              )}
-              {!isPastMonth && syncStatus === "idle" && (
-                <button
-                  onClick={() => {
-                    setSyncStatus("saving");
-                    saveDistToSheet(year, month, flattenConfig(config))
-                      .then((ok) => setSyncStatus(ok ? "saved" : "error"))
-                      .catch(() => setSyncStatus("error"));
-                  }}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all hover:opacity-80"
-                  style={{ borderColor: "var(--border)", color: "var(--text-muted)", background: "var(--bg-card)" }}>
-                  ↑ Sync to Sheet
-                </button>
-              )}
-              <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
-            </div>
+        {/* ── Header ── */}
+        <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-secondary)" }}>Credit Distribution</p>
+            <h1 className="text-3xl font-bold tracking-tight leading-tight" style={{ color: "var(--text-primary)" }}>
+              {THAI_MONTHS_SHORT[month - 1]} <span className="num" style={{ color: "var(--accent-strong)" }}>{buddhist}</span>
+            </h1>
           </div>
-          {/* Heading */}
-          <h1 className="text-3xl sm:text-4xl font-black leading-none tracking-tight"
-            style={{ color: "var(--text-primary)" }}>
-            {THAI_MONTHS_SHORT[month - 1]}{" "}
-            <span style={{ color: "var(--accent)" }}>{buddhist}</span>
-          </h1>
-        </div>
-
-        {/* ── Total bar ── */}
-        <div className="flex items-center gap-2 mb-3">
-          <div className="rounded-xl px-4 py-2 flex items-center gap-2 shadow-sm"
-            style={{ background: "var(--accent)", color: "#fff" }}>
-            <span className="text-[10px] font-black uppercase tracking-widest opacity-75">เครดิตรวม</span>
-            <span className="font-black text-xl">{totalCredits}</span>
-            <span className="text-xs font-semibold opacity-75">M Coin</span>
-          </div>
-          {sum !== 100 && (
-            <div className="rounded-xl px-3 py-2 border text-xs font-semibold"
-              style={{ borderColor: "#FBBF24", background: "#FFFBEB", color: "#92400E" }}>
-              ⚠ รวม {sum.toFixed(1)}% {sum < 100 ? `(ขาด ${(100 - sum).toFixed(1)}%)` : `(เกิน ${(sum - 100).toFixed(1)}%)`}
-            </div>
-          )}
-          {sum === 100 && (
-            <div className="rounded-xl px-3 py-2 border text-xs font-semibold"
-              style={{ borderColor: "var(--border)", background: "var(--bg-card)", color: "var(--text-muted)" }}>
-              ✓ รวม 100% พอดี
-            </div>
-          )}
-        </div>
-
-        {/* ── Notes ── */}
-        <div className="mb-4 rounded-xl border overflow-hidden"
-          style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
-          <div className="px-4 py-2 border-b flex items-center justify-between"
-            style={{ borderColor: "var(--border)", background: "var(--bg-page)" }}>
-            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>📝 โน้ต / หมายเหตุ</span>
-            <span className="text-[10px]" style={{
-              color: noteSyncStatus === "saving" ? "var(--text-muted)"
-                   : noteSyncStatus === "saved"  ? "#22C55E"
-                   : noteSyncStatus === "error"  ? "#EF4444"
-                   : "transparent"
-            }}>
-              {noteSyncStatus === "saving" && "⏳ กำลังบันทึก…"}
-              {noteSyncStatus === "saved"  && "✓ บันทึกแล้ว"}
-              {noteSyncStatus === "error"  && "⚠ บันทึกไม่สำเร็จ"}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs" role="status" style={{ color: syncStatus === "error" ? "var(--danger)" : syncStatus === "saved" ? "var(--success)" : "var(--text-secondary)" }}>
+              {syncStatus === "saving" ? "กำลังบันทึก…" : syncStatus === "saved" ? "✓ บันทึกลง Sheet แล้ว" : syncStatus === "error" ? "บันทึกไม่สำเร็จ" : ""}
             </span>
-          </div>
-          <div className="relative">
-            <textarea
-              value={notes}
-              onChange={(e) => !isPastMonth && setNotes(e.target.value)}
-              readOnly={isPastMonth}
-              placeholder={isPastMonth ? "ไม่มีโน้ตบันทึกไว้สำหรับเดือนนี้" : "พิมพ์หรือวางโน้ตเพิ่มเติมที่ต้องการบันทึกไว้สำหรับเดือนนี้…"}
-              rows={3}
-              className="w-full resize-y px-4 py-3 text-sm outline-none"
-              style={{
-                background: isPastMonth ? "var(--bg-page)" : "var(--bg-card)",
-                color: isPastMonth ? "var(--text-secondary)" : "var(--text-primary)",
-                fontFamily: "inherit",
-                minHeight: "96px",
-                cursor: isPastMonth ? "default" : "text",
-                paddingBottom: isPastMonth ? "12px" : "48px",
-                resize: isPastMonth ? "none" : "vertical",
-              }}
-            />
-            {!isPastMonth && (
-              <button
-                onClick={() => {
-                  if (noteTimer.current) clearTimeout(noteTimer.current);
-                  setNoteSyncStatus("saving");
-                  localStorage.setItem(notesKey(year, month), notes);
-                  saveNoteToSheet(year, month, notes)
-                    .then((ok) => setNoteSyncStatus(ok ? "saved" : "error"))
-                    .catch(() => setNoteSyncStatus("error"));
-                }}
-                className="absolute bottom-3 right-3 px-4 py-1.5 rounded-lg text-xs font-bold transition-all hover:opacity-90"
-                style={{ background: "var(--accent)", color: "#fff" }}>
-                บันทึก
+            {!isPastMonth && syncStatus !== "saving" && (
+              <button type="button" onClick={syncNow}
+                className="h-10 rounded-lg border px-3 text-xs font-semibold transition-colors hover:bg-black/5"
+                style={{ borderColor: "var(--border)", background: "var(--bg-card)", color: "var(--text-secondary)" }}>
+                ↑ Sync to Sheet
               </button>
             )}
-            {isPastMonth && (
-              <div className="absolute bottom-2 right-3 text-[10px]" style={{ color: "var(--text-muted)" }}>
-                🔒 เดือนที่ผ่านมา
-              </div>
-            )}
+            <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
           </div>
-        </div>
+        </header>
 
-        {/* ── Main layout ── */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_540px] gap-4 sm:gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_460px] gap-4 lg:flex-1 lg:min-h-0">
 
-          {/* ── Distribution Table ── */}
-          <div className="rounded-2xl overflow-hidden border shadow-sm"
-            style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
-
-            {/* Table header */}
-            <div className="grid border-b"
-              style={{ gridTemplateColumns: "1fr 92px 92px", borderColor: "var(--border)", background: "#FAFAFA" }}>
-              <div className="px-5 py-2 text-xs font-black uppercase tracking-widest flex items-center"
-                style={{ color: "var(--text-muted)" }}>ทีม / บริษัท</div>
-              <div className="px-4 py-2 text-xs font-black uppercase tracking-widest flex items-center justify-center"
-                style={{ color: "var(--text-muted)", background: "var(--bg-card)" }}>%</div>
-              <div className="px-4 py-2 text-xs font-black uppercase tracking-widest flex items-center justify-center"
-                style={{ color: "#fff", background: "var(--bg-dark)" }}>
-                M Coin
+          {/* ── Left: allocation ── */}
+          <section className="surface flex flex-col overflow-hidden lg:min-h-0" aria-label="สัดส่วนเครดิต">
+            {/* total + share bar */}
+            <div className="px-5 py-3.5 border-b" style={{ borderColor: "var(--border)" }}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>เครดิตรวมทั้งทีม (หักวันลาแล้ว)</p>
+                  <p className="flex items-baseline gap-2 mt-0.5">
+                    <span className="num text-4xl font-bold leading-none tracking-tight" style={{ color: "var(--text-primary)" }}>{fmt2(totalCredits)}</span>
+                    <span className="text-sm" style={{ color: "var(--text-secondary)" }}>M Coin</span>
+                  </p>
+                </div>
+                <span className="num shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
+                  style={sum === 100
+                    ? { background: "var(--success-bg)", color: "var(--success)" }
+                    : { background: "var(--warning-bg)", color: "var(--warning)" }}>
+                  {sum === 100 ? "แบ่งครบ 100%" : `แบ่งแล้ว ${sum.toFixed(1)}% · ${sum < 100 ? `เหลือ ${(100 - sum).toFixed(1)}%` : `เกิน ${(sum - 100).toFixed(1)}%`}`}
+                </span>
+              </div>
+              <div className="mt-2.5 flex h-2.5 gap-0.5 overflow-hidden rounded-full" style={{ background: "var(--border)" }}
+                role="img" aria-label={companies.filter((x) => x.pct > 0).map((x) => `${x.company.name} ${x.pct}%`).join(", ")}>
+                {companies.filter((x) => x.pct > 0).map((x) => (
+                  <span key={x.company.id} style={{ flex: x.pct, background: x.color }} title={`${x.company.name} ${x.pct}%`} />
+                ))}
+                {sum < 100 && <span style={{ flex: 100 - sum }} />}
               </div>
             </div>
 
-            {config.map((priority) => {
-              const priorityPct  = priority.companies.flatMap((c) => c.teams).reduce((s, t) => s + t.pct, 0);
-              const priorityCoins = Math.round((priorityPct / 100) * totalCredits * 100) / 100;
-              return (
-                <div key={priority.id}>
-                  {/* Priority row */}
-                  <div className="grid border-b"
-                    style={{ gridTemplateColumns: "1fr 92px 92px", borderColor: "var(--border)", background: priority.bgColor }}>
-                    <div className="px-5 py-1 flex items-center">
-                      <span className="text-xs font-black" style={{ color: priority.textColor }}>{priority.name}</span>
-                    </div>
-                    <div className="px-4 py-1 flex items-center justify-center">
-                      <span className="text-xs font-black tracking-wide" style={{ color: priority.textColor }}>
-                        {priorityPct.toFixed(2)}%
-                      </span>
-                    </div>
-                    <div className="px-4 py-1 flex items-center justify-center">
-                      <span className="text-xs font-black" style={{ color: priority.textColor }}>{priorityCoins}</span>
-                    </div>
+            {/* companies and their teams as one table */}
+            <div className="lg:flex-1 lg:min-h-0 lg:overflow-auto">
+                  <div className="sticky top-0 z-10 grid items-center px-5 h-8 text-xs border-b" style={{ gridTemplateColumns: DIST, borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-card)" }}>
+                    <span className="flex items-center gap-3">บริษัท / ทีม
+                      {zeroCount > 0 && (
+                        <button type="button" onClick={() => setShowZero((v) => !v)} aria-pressed={showZero}
+                          className="rounded-md px-1.5 py-0.5 font-semibold underline underline-offset-2 hover:bg-black/5" style={{ color: "var(--text-secondary)" }}>
+                          {showZero ? "ซ่อนทีมที่ไม่มีเครดิต" : `แสดงทีมที่เป็น 0% (${zeroCount})`}
+                        </button>
+                      )}
+                    </span><span className="text-right">%</span><span className="text-right">M Coin</span>
                   </div>
-
-                  {priority.companies.map((company) => {
-                    const companyPct   = company.teams.reduce((s, t) => s + t.pct, 0);
-                    const companyCoins = Math.round((companyPct / 100) * totalCredits * 100) / 100;
+                  {companies.filter((x) => showZero || x.pct > 0).map(({ priority, company, pct, color }) => {
+                    const coins = (pct / 100) * totalCredits;
                     return (
-                      <div key={company.id}>
-                        {/* Company row */}
-                        <div className="grid border-b"
-                          style={{ gridTemplateColumns: "1fr 92px 92px", borderColor: "var(--border)", background: "#F5F0EE" }}>
-                          <div className="px-5 py-0.5 flex items-center">
-                            <span className="text-xs font-black uppercase tracking-wide"
-                              style={{ color: "var(--text-secondary)" }}>{company.name}</span>
-                          </div>
-                          <div className="px-4 py-0.5 flex items-center justify-center">
-                            <span className="text-xs font-medium tracking-wide" style={{ color: "var(--text-secondary)" }}>
-                              {companyPct.toFixed(2)}%
-                            </span>
-                          </div>
-                          <div className="px-4 py-0.5 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.03)" }}>
-                            <span className="text-xs font-medium tracking-wide" style={{ color: "var(--text-secondary)" }}>{companyCoins}</span>
-                          </div>
+                      <div key={company.id} className="border-b" style={{ borderColor: "var(--border)" }}>
+                        <div className="grid items-center px-5 h-[30px]" style={{ gridTemplateColumns: DIST, background: "var(--bg-page)" }}>
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: pct > 0 ? color : "var(--border)" }} aria-hidden />
+                            <span className="truncate text-sm font-bold" style={{ color: "var(--text-primary)" }} title={company.name}>{company.name}</span>
+                            <span className="shrink-0 text-xs font-normal" style={{ color: "var(--text-muted)" }}>{priority.name.replace("Priority : ", "")}</span>
+                          </span>
+                          <span className="num text-right text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{pct.toFixed(1)}%</span>
+                          <span className="num text-right text-sm font-bold" style={{ color: coins > 0 ? "var(--accent-strong)" : "var(--text-muted)" }}>{coins > 0 ? fmt2(coins) : "—"}</span>
                         </div>
-
-                        {/* Team rows */}
-                        {company.teams.map((team, ti) => {
-                          const coins = Math.round((team.pct / 100) * totalCredits * 100) / 100;
+                        {company.teams.filter((t) => showZero || t.pct > 0).map((team) => {
+                          const tc = (team.pct / 100) * totalCredits;
                           const isEditing = editingId === team.id;
+                          const off = team.pct <= 0;
                           return (
-                            <div key={team.id} className="grid border-b transition-colors hover:bg-[#FFF8F5]"
-                              style={{
-                                gridTemplateColumns: "1fr 92px 92px",
-                                borderColor: "var(--border)",
-                                background: ti % 2 === 0 ? "var(--bg-card)" : "#FEFEFE",
-                              }}>
-                              {/* Name */}
-                              <div className="px-6 py-1 flex items-center">
-                                <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
-                                  - {team.name}
-                                </span>
-                              </div>
-                              {/* % editable */}
-                              <div className="px-4 py-1 flex items-center justify-center"
-                                style={{ background: "var(--bg-card)" }}>
+                            <div key={team.id} className="grid items-center px-5 h-[26px] [@media(min-height:860px)]:h-7 text-sm" style={{ gridTemplateColumns: DIST }}>
+                              <span className="truncate pl-[18px]" style={{ color: off ? "var(--text-muted)" : "var(--text-secondary)" }} title={team.name}>{team.name}</span>
+                              <span className="flex justify-end">
                                 {isEditing ? (
                                   <input
                                     type="number" min="0" max="100" step="0.5"
                                     value={editVal}
                                     autoFocus
+                                    aria-label={`เปอร์เซ็นต์ของ ${company.name} · ${team.name}`}
                                     onChange={(e) => setEditVal(e.target.value)}
                                     onBlur={() => commitEdit(team.id)}
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); commitEdit(team.id); }
                                       if (e.key === "Escape") setEditingId(null);
                                     }}
-                                    className="w-16 text-center text-xs font-semibold rounded border px-2 py-1 focus:outline-none"
-                                    style={{ borderColor: "var(--border)", color: "var(--text-secondary)", background: "#fff" }}
+                                    className="num w-16 text-right text-sm rounded-md border px-1.5 outline-none"
+                                    style={{ borderColor: "var(--accent)", color: "var(--text-primary)", background: "var(--bg-card)" }}
                                   />
                                 ) : (
-                                  <button
-                                    onClick={() => startEdit(team)}
-                                    className="text-xs font-medium tracking-wide rounded px-2 py-1 transition-all hover:bg-gray-100"
-                                    style={{ color: "var(--text-secondary)" }}>
-                                    {team.pct.toFixed(2)}%
+                                  <button type="button" onClick={() => startEdit(team)} title="คลิกเพื่อแก้ %"
+                                    className="num -mr-1.5 rounded-md px-1.5 text-right transition-colors hover:bg-[var(--accent-light)]"
+                                    style={{ color: off ? "var(--text-muted)" : "var(--text-primary)" }}>
+                                    {team.pct.toFixed(1)}%
                                   </button>
                                 )}
-                              </div>
-                              {/* Coins */}
-                              <div className="px-4 py-1 flex items-center justify-center" style={{ background: "var(--accent-light)" }}>
-                                <span className="font-black text-sm"
-                                  style={{ color: "var(--accent)" }}>{coins}</span>
-                              </div>
+                              </span>
+                              <span className="num text-right" style={{ color: off ? "var(--text-muted)" : "var(--text-primary)" }}>{off ? "—" : fmt2(tc)}</span>
                             </div>
                           );
                         })}
                       </div>
                     );
                   })}
-                </div>
-              );
-            })}
-
-            {/* Total row */}
-            <div className="grid" style={{ gridTemplateColumns: "1fr 92px 92px", background: "var(--bg-dark)" }}>
-              <div className="px-5 py-2 flex items-center col-span-1">
-                <span className="text-xs font-black uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.5)" }}>
-                  Total
-                </span>
-              </div>
-              <div className="px-4 py-2 flex items-center justify-center">
-                <span className="font-black text-xs tracking-wide" style={{ color: sum === 100 ? "var(--accent)" : "#FBBF24" }}>
-                  {sum.toFixed(2)}%
-                </span>
-              </div>
-              <div className="px-4 py-2 flex items-center justify-center" style={{ background: "var(--accent)" }}>
-                <span className="font-black text-xl text-white">{totalCredits}</span>
-              </div>
             </div>
-          </div>
+          </section>
 
-          {/* ── Right Panel: Previous month summary ── */}
-          <aside>
-            <div className="rounded-2xl overflow-hidden border shadow-sm"
-              style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
-
-              {/* Panel header */}
-              <div className="border-b" style={{ borderColor: "var(--border)" }}>
-                <div className="grid" style={{ gridTemplateColumns: "1fr 121px 110px" }}>
-                  <div className="px-4 py-2 flex items-end" style={{ background: "#FAFAFA" }}>
-                    <span className="text-xs font-black uppercase tracking-widest"
-                      style={{ color: "var(--text-muted)" }}>ทีม</span>
-                  </div>
-                  {/* Previous month header */}
-                  <div className="px-2 py-1.5 text-center" style={{ background: "#FAFAFA" }}>
-                    <div className="text-xs font-black uppercase tracking-wider mb-0.5"
-                      style={{ color: "var(--text-muted)" }}>
-                      {THAI_MONTHS_SHORT[pm - 1]} {py + 543}
-                    </div>
-                    <div className="grid grid-cols-2 gap-0.5">
-                      <span className="text-xs text-center" style={{ color: "var(--text-muted)" }}>ที่มี</span>
-                      <span className="text-xs text-center" style={{ color: "var(--accent)" }}>ใช้ไป</span>
-                    </div>
-                  </div>
-                  {/* Current month header */}
-                  <div className="px-2 py-1.5 text-center"
-                    style={{ background: "var(--accent)", borderLeft: "2px solid var(--accent)" }}>
-                    <div className="text-xs font-black uppercase tracking-wider mb-0.5 text-white/75">
-                      {THAI_MONTHS_SHORT[month - 1]} {buddhist}
-                    </div>
-                    <div className="text-xs text-white/90 font-semibold">เครดิตใหม่</div>
-                  </div>
-                </div>
+          {/* ── Right: last month + notes ── */}
+          <div className="flex flex-col gap-4 lg:min-h-0">
+            <section className="surface overflow-hidden shrink-0" aria-label="เทียบกับเดือนก่อน">
+              <div className="grid items-end px-4 pt-3 pb-2 border-b text-xs" style={{ gridTemplateColumns: CMP, borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+                <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>เทียบเดือนก่อน</span>
+                <span className="text-right">{THAI_MONTHS_SHORT[pm - 1]} ได้</span>
+                <span className="text-right">ใช้จริง</span>
+                <span className="text-right font-semibold" style={{ color: "var(--accent-strong)" }}>{THAI_MONTHS_SHORT[month - 1]} ใหม่</span>
               </div>
-
-              {/* Data rows */}
-              {summaryGroups.map((group, gi) => {
-                const prevA = prevAlloc[group] ?? 0;
-                const used  = prevUsage[group]?.used ?? null;
-                const newC  = currentAlloc[group] ?? 0;
-                return (
-                  <div key={group} className="grid border-b"
-                    style={{
-                      gridTemplateColumns: "1fr 121px 110px",
-                      borderColor: "var(--border)",
-                      background: gi % 2 === 0 ? "var(--bg-card)" : "#FEFEFE",
-                    }}>
-                    <div className="px-4 py-1.5 flex items-center gap-1.5">
-                      <span className="text-xs font-medium leading-snug" style={{ color: "var(--text-primary)" }}>
-                        {group}
-                      </span>
-                      {(prevUsage[group]?.count ?? 0) > 0 && (
-                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full shrink-0"
-                          style={{ background: "var(--accent-light)", color: "var(--accent)" }}>
-                          {prevUsage[group]!.count} ชิ้น
-                        </span>
-                      )}
-                    </div>
-                    {/* Prev month: allocated | used */}
-                    <div className="px-1 py-1.5 grid grid-cols-2 gap-0.5 items-center">
-                      <span className="text-xs font-semibold text-center" style={{ color: "var(--text-secondary)" }}>
-                        {prevA > 0 ? prevA.toFixed(2) : "—"}
-                      </span>
-                      <span className="text-xs font-semibold text-center"
-                        style={{ color: prevLoading ? "var(--text-muted)" : used !== null ? "var(--accent)" : "var(--text-muted)" }}>
+              <ul>
+                {summaryGroups.filter((g) => showZero || (prevAlloc[g] ?? 0) > 0 || (prevUsage[g]?.used ?? 0) > 0 || (currentAlloc[g] ?? 0) > 0).map((group, gi) => {
+                  const prevA = prevAlloc[group] ?? 0;
+                  const used  = prevUsage[group]?.used ?? null;
+                  const newC  = currentAlloc[group] ?? 0;
+                  const over  = used !== null && prevA > 0 && used > prevA;
+                  return (
+                    <li key={group} className="grid items-center px-4 h-[30px] text-xs"
+                      style={{ gridTemplateColumns: CMP, borderTop: gi > 0 ? "1px solid var(--border)" : undefined }}>
+                      <span className="truncate" style={{ color: "var(--text-primary)" }} title={group}>{group}</span>
+                      <span className="num text-right" style={{ color: "var(--text-secondary)" }}>{prevA > 0 ? prevA.toFixed(2) : "—"}</span>
+                      <span className="num text-right" style={{ color: prevLoading || used === null ? "var(--text-muted)" : over ? "var(--danger)" : "var(--text-primary)", fontWeight: over ? 600 : undefined }}>
                         {prevLoading ? "…" : used !== null ? used.toFixed(2) : "—"}
                       </span>
-                    </div>
-                    {/* Current month: new allocation */}
-                    <div className="px-2 py-1.5 flex items-center justify-center"
-                      style={{ background: "var(--accent-light)", borderLeft: "2px solid var(--accent)" }}>
-                      <span className="text-sm font-black" style={{ color: "var(--accent)" }}>
-                        {newC > 0 ? newC.toFixed(2) : "—"}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Summary totals */}
-              <div className="grid border-t" style={{ gridTemplateColumns: "1fr 121px 110px", borderColor: "var(--border)", background: "var(--bg-dark)" }}>
-                <div className="px-4 py-2 flex items-center">
-                  <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.5)" }}>
-                    รวม
-                  </span>
-                </div>
-                <div className="px-1 py-2 grid grid-cols-2 gap-0.5 items-center">
-                  <span className="text-xs font-black text-center" style={{ color: "rgba(255,255,255,0.7)" }}>
-                    {prevTotalCredits}
-                  </span>
-                  <span className="text-xs font-black text-center" style={{ color: "var(--accent)" }}>
-                    {prevLoading ? "…" : summaryGroups.reduce((s, g) => Math.round((s + (prevUsage[g]?.used ?? 0)) * 100) / 100, 0) || "—"}
-                  </span>
-                </div>
-                <div className="px-2 py-2 flex items-center justify-center"
-                  style={{ background: "var(--accent)", borderLeft: "2px solid var(--accent)" }}>
-                  <span className="font-black text-base text-white">{totalCredits}</span>
-                </div>
+                      <span className="num text-right text-sm font-bold" style={{ color: newC > 0 ? "var(--accent-strong)" : "var(--text-muted)" }}>{newC > 0 ? newC.toFixed(2) : "—"}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="grid items-center px-4 h-9 text-xs text-white" style={{ gridTemplateColumns: CMP, background: "var(--bg-dark)" }}>
+                <span className="font-semibold">รวม</span>
+                <span className="num text-right" style={{ color: "rgba(255,255,255,0.7)" }}>{fmt2(prevTotalCredits)}</span>
+                <span className="num text-right">{prevLoading ? "…" : prevUsedTotal ? fmt2(prevUsedTotal) : "—"}</span>
+                <span className="num text-right text-sm font-bold" style={{ color: "#FFB599" }}>{fmt2(totalCredits)}</span>
               </div>
+            </section>
 
-              {/* Footer note */}
-              <div className="px-4 py-2 border-t" style={{ borderColor: "var(--border)", background: "#FAFAFA" }}>
-                <p className="text-[10px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
-                  <span className="font-semibold">ที่มี</span> = เครดิตจัดสรรเดือน{THAI_MONTHS_SHORT[pm - 1]} ·{" "}
-                  <span className="font-semibold">ใช้ไป</span> = จากงานจริงใน Notion ·{" "}
-                  <span className="font-semibold" style={{ color: "var(--accent)" }}>เครดิตใหม่</span> = จัดสรรเดือนนี้
-                </p>
+            <section className="surface overflow-hidden flex flex-col lg:flex-1 lg:min-h-[120px]" aria-label="โน้ต / หมายเหตุ">
+              <div className="flex items-center gap-2 px-4 py-2 border-b" style={{ borderColor: "var(--border)" }}>
+                <h2 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>โน้ต</h2>
+                <span className="text-xs" role="status" style={{ color: noteSyncStatus === "error" ? "var(--danger)" : noteSyncStatus === "saved" ? "var(--success)" : "var(--text-secondary)" }}>{noteStatus}</span>
+                {isPastMonth ? (
+                  <span className="ml-auto text-xs" style={{ color: "var(--text-secondary)" }}>{IS_BETA ? "🔒 โหมดทดสอบ · แก้ไม่ได้" : "🔒 เดือนที่ผ่านมา"}</span>
+                ) : (
+                  <button type="button" onClick={saveNotes} className="btn-primary ml-auto rounded-lg px-3.5 py-1 text-xs font-semibold">บันทึก</button>
+                )}
               </div>
-            </div>
-          </aside>
+              <textarea
+                value={notes}
+                onChange={(e) => !isPastMonth && setNotes(e.target.value)}
+                readOnly={isPastMonth}
+                aria-label="โน้ต / หมายเหตุ"
+                placeholder={isPastMonth ? "ไม่มีโน้ตบันทึกไว้สำหรับเดือนนี้" : "พิมพ์หรือวางโน้ตเพิ่มเติมสำหรับเดือนนี้…"}
+                className="flex-1 w-full min-h-[100px] resize-none px-4 py-3 text-xs leading-relaxed outline-none"
+                style={{ background: isPastMonth ? "var(--bg-page)" : "var(--bg-card)", color: isPastMonth ? "var(--text-secondary)" : "var(--text-primary)", fontFamily: "inherit" }}
+              />
+            </section>
+          </div>
         </div>
       </div>
     </div>

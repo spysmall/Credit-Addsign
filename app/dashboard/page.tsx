@@ -1,16 +1,23 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import MonthSelector from "@/components/MonthSelector";
 import { loadDistConfig, DistConfig } from "@/lib/distribution";
 import { getWorkdayInfo, hoursToCredits } from "@/lib/workdays";
+import { getHolidaysForMonth } from "@/lib/holidays";
 import { TEAM_MEMBERS } from "@/lib/team";
 import { fetchDistFromSheet } from "@/lib/sheetDistribution";
 import { fetchAllTaskUsage, TeamUsage } from "@/lib/sheetTasks";
 import { saveRemainingToSheet, RemainingRow } from "@/lib/sheetRemaining";
 import { fetchLeaveHours } from "@/lib/sheetLeave";
+import { teamDisplay, teamGroup, webUsageByCard } from "@/lib/taskAssign";
+import { fetchMemberTeams } from "@/lib/sheetUsers";
+import { useAuth } from "@/components/AuthProvider";
+import { IS_BETA } from "@/lib/appEnv";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+const LAYOUT_KEY = "credit-dashboard-layout-v1";
 const AUTO_SYNC_KEY = (y: number, m: number) => `credit-autosync-${y}-${m}`;
 
 function teamTotalCredits(y: number, m: number, leave: Record<string, number> = {}): number {
@@ -23,99 +30,12 @@ function teamTotalCredits(y: number, m: number, leave: Record<string, number> = 
   }, 0);
 }
 
-function IconChart() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path d="M2 11a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-5ZM8 7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V7ZM14 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V4Z"/>
-    </svg>
-  );
-}
-function IconFlag() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path d="M3.5 2.75a.75.75 0 0 0-1.5 0v14.5a.75.75 0 0 0 1.5 0v-4.392l1.657-.348a6.449 6.449 0 0 1 4.271.572 7.948 7.948 0 0 0 5.965.524l2.078-.64A.75.75 0 0 0 18 12.25v-8.5a.75.75 0 0 0-.904-.734l-2.38.501a7.25 7.25 0 0 1-4.186-.363l-.502-.2a8.75 8.75 0 0 0-5.053-.439L3.5 3.16V2.75Z"/>
-    </svg>
-  );
-}
-function IconGlobe() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm-1.547-8.459c.21-.248.472-.543.795-.83.664-.592 1.57-1.175 2.752-1.175a3.25 3.25 0 0 1 3.25 3.25c0 1.307-.78 2.276-1.654 2.928-.873.652-1.95 1.036-2.846 1.036-.924 0-1.717-.427-2.25-.852l-.023-.018c.16-.38.258-.78.27-1.173a3.28 3.28 0 0 1-.294-.166ZM6.75 9.5a.75.75 0 0 0 0 1.5h.5a.75.75 0 0 0 0-1.5h-.5Z" clipRule="evenodd"/>
-    </svg>
-  );
-}
-function IconGamepad() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3A1.5 1.5 0 0 1 13 3.5V4h-1.5v-.5h-3V4H7v-.5ZM3 7.5A1.5 1.5 0 0 1 4.5 6h11A1.5 1.5 0 0 1 17 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5v-7ZM8 9a.75.75 0 0 0-.75.75v.5h-.5a.75.75 0 0 0 0 1.5h.5v.5a.75.75 0 0 0 1.5 0v-.5h.5a.75.75 0 0 0 0-1.5h-.5v-.5A.75.75 0 0 0 8 9Zm4.25 1.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm1.5 1.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"/>
-    </svg>
-  );
-}
-function IconBriefcase() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path fillRule="evenodd" d="M6 3.75A2.75 2.75 0 0 1 8.75 1h2.5A2.75 2.75 0 0 1 14 3.75V4h1.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H6v-.25Zm2.5-1.25A1.25 1.25 0 0 0 7.25 3.75V4h5.5v-.25A1.25 1.25 0 0 0 11.5 2.5h-3Z" clipRule="evenodd"/>
-    </svg>
-  );
-}
-function IconTrophy() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path fillRule="evenodd" d="M10 1c-1.418 0-2.75.228-3.994.648-.298.102-.526.314-.665.575-.14.26-.19.56-.12.852l.084.346a6.003 6.003 0 0 0 4.695 4.485v1.207a6.01 6.01 0 0 0-1.253-.131 6.01 6.01 0 0 0-2.747.664.75.75 0 0 0-.255.255 6.01 6.01 0 0 0-.664 2.747v.5c0 1.07.868 1.938 1.938 1.938h5.961A1.938 1.938 0 0 0 15.72 12.4v-.5a6.01 6.01 0 0 0-.664-2.747.75.75 0 0 0-.255-.255 6.01 6.01 0 0 0-2.747-.664c-.433 0-.851.046-1.254.131V7.56A6.003 6.003 0 0 0 15.496 3.42l.084-.346c.07-.292.02-.591-.12-.852a1.25 1.25 0 0 0-.665-.575A11.25 11.25 0 0 0 10 1ZM8.5 15.062V17.5H7.75a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5H11.5v-2.438a3.44 3.44 0 0 1-3 0Z" clipRule="evenodd"/>
-    </svg>
-  );
-}
-function IconTarget() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm0-2a6 6 0 1 1 0-12 6 6 0 0 1 0 12Zm0-2a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-2a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z" clipRule="evenodd"/>
-    </svg>
-  );
-}
-function IconBolt() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path d="M11.983 1.907a.75.75 0 0 0-1.292-.657l-8.5 9.5A.75.75 0 0 0 2.75 12h6.572l-1.305 6.093a.75.75 0 0 0 1.292.657l8.5-9.5A.75.75 0 0 0 17.25 8h-6.572l1.305-6.093Z"/>
-    </svg>
-  );
-}
-function IconPalette() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path fillRule="evenodd" d="M10 18c4.418 0 8-3.134 8-7s-3.582-7-8-7-8 3.134-8 7c0 1.76.743 3.37 1.97 4.6-.097 1.016-.417 2.13-.771 2.966-.079.186.074.394.273.362 2.256-.37 3.597-.938 4.18-1.234A9.06 9.06 0 0 0 10 18Zm-1.5-9.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM8 13a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Zm6.5-4.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" clipRule="evenodd"/>
-    </svg>
-  );
-}
-function IconFilm() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path d="M3.25 3A2.25 2.25 0 0 0 1 5.25v9.5A2.25 2.25 0 0 0 3.25 17h13.5A2.25 2.25 0 0 0 19 14.75v-9.5A2.25 2.25 0 0 0 16.75 3H3.25ZM2.5 9h2v2h-2V9Zm0 3.5h2v2a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75v-2Zm0-7v-.75c0-.414.336-.75.75-.75h.5c.414 0 .75.336.75.75V5.5h-2Zm13.5 0h2v-.75a.75.75 0 0 0-.75-.75h-.5a.75.75 0 0 0-.75.75V5.5Zm2 3.5h-2v2h2V9Zm0 3.5h-2v2c0 .414.336.75.75.75h.5c.414 0 .75-.336.75-.75v-2ZM6.5 6h7v8h-7V6Z"/>
-    </svg>
-  );
-}
-function IconTag() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-      <path fillRule="evenodd" d="M5.5 3A2.5 2.5 0 0 0 3 5.5v2.879a2.5 2.5 0 0 0 .732 1.767l6.5 6.5a2.5 2.5 0 0 0 3.536 0l2.878-2.878a2.5 2.5 0 0 0 0-3.536l-6.5-6.5A2.5 2.5 0 0 0 8.38 3H5.5ZM6 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd"/>
-    </svg>
-  );
-}
-
-const TEAM_ICONS: Record<string, React.ReactNode> = {
-  "MKT Performance":       <IconChart />,
-  "MKT Campaign TH":       <IconFlag />,
-  "MKT Campaign SEA":      <IconGlobe />,
-  "GP":                    <IconGamepad />,
-  "GP(EXE)":               <IconGamepad />,
-  "BD(CB)":                <IconBriefcase />,
-  "BD(HOF)":               <IconTrophy />,
-  "BD":                    <IconTarget />,
-  "AGX":                   <IconBolt />,
-  "CRI, Aztek, Topfiar, Other": <IconPalette />,
-  "Director&Manager&Edit": <IconFilm />,
-};
+const fmtN = (n: number) => (Math.round(n * 100) / 100).toLocaleString();
 
 export default function DashboardPage() {
+  const auth = useAuth();
+  const isSuperAdmin = auth.status === "allowed" && auth.isSuperAdmin;
+  const myEmail = auth.status === "allowed" ? auth.user.email : "";
   const now = new Date();
   const [year, setYear]   = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -124,12 +44,36 @@ export default function DashboardPage() {
   const [usage, setUsage]     = useState<Record<string, TeamUsage>>({});
   const [loading, setLoading] = useState(true);
   const [usageLoaded, setUsageLoaded] = useState(false);
+  const [view, setView] = useState<"all" | "attention" | "over">("all");
+  const [sortLow, setSortLow] = useState(false);
+  const [layout, setLayout] = useState<"card" | "table">("card");
+  useEffect(() => {
+    try { if (localStorage.getItem(LAYOUT_KEY) === "table") setLayout("table"); } catch { /* ignore */ }
+  }, []);
+  const pickLayout = (l: "card" | "table") => {
+    setLayout(l);
+    try { localStorage.setItem(LAYOUT_KEY, l); } catch { /* ignore */ }
+  };
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [leaveData, setLeaveData] = useState<Record<string, number>>({});
+  const [webUsage, setWebUsage] = useState<Record<string, { used: number; count: number }>>({});
   const autoSyncFired = useRef(false);
+
+  // Regular users see their own team's cards by default (can switch to everything); super admins always see all.
+  const [myTeams, setMyTeams] = useState<string[] | null>(null); // null = still looking it up
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    if (isSuperAdmin || !myEmail) return;
+    let alive = true;
+    fetchMemberTeams().then((m) => { if (alive) setMyTeams(m.get(myEmail) ?? []); }).catch(() => { if (alive) setMyTeams([]); });
+    return () => { alive = false; };
+  }, [isSuperAdmin, myEmail]);
 
   const buddhist = year + 543;
   const total = teamTotalCredits(year, month, leaveData);
+
+  // Tasks added through the web form (/new-task) — charged per team card
+  useEffect(() => { setWebUsage(webUsageByCard(year, month)); }, [year, month]);
 
   useEffect(() => {
     setLeaveData({});
@@ -170,7 +114,7 @@ export default function DashboardPage() {
 
   // Auto-sync every Friday ≥ 10:00 AM for the current month
   useEffect(() => {
-    if (loading || !usageLoaded) return;
+    if (IS_BETA || loading || !usageLoaded) return; // the test site never writes to the sheet
     if (autoSyncFired.current) return;
     if (syncStatus !== "idle") return;
 
@@ -192,10 +136,86 @@ export default function DashboardPage() {
   // sub-totals of the same task, not extra usage, so including them would double-count.
   const totalUsed  = Object.entries(usage)
     .filter(([key]) => !key.includes("::"))
-    .reduce((s, [, v]) => s + v.used, 0);
+    .reduce((s, [, v]) => s + v.used, 0)
+    + Object.values(webUsage).reduce((s, v) => s + v.used, 0);
   const totalAlloc = config.flatMap(p => p.companies).flatMap(c => c.teams)
     .reduce((s, t) => s + (t.pct / 100) * total, 0);
 
+  const myGroups = [...new Set((myTeams ?? []).map((t) => teamGroup(t)).filter((g): g is string => !!g))];
+  const filterOn = !isSuperAdmin && myGroups.length > 0 && !showAll;
+  const viewConfig: DistConfig = filterOn
+    ? config
+        .map((p) => ({ ...p, companies: p.companies
+          .map((c) => ({ ...c, teams: c.teams.filter((t) => myGroups.includes(t.summaryGroup)) }))
+          .filter((c) => c.teams.length > 0) }))
+        .filter((p) => p.companies.length > 0)
+    : config;
+  // teams with no credit allocated at all are not shown (teams that used theirs up still are)
+  const shownConfig: DistConfig = viewConfig
+    .map((p) => ({ ...p, companies: p.companies
+      .map((c) => ({ ...c, teams: c.teams.filter((t) => t.pct > 0) }))
+      .filter((c) => c.teams.length > 0) }))
+    .filter((p) => p.companies.length > 0);
+  // hero figures for the filtered view: credit pool and usage of just the visible cards
+  const viewTeams = viewConfig.flatMap((p) => p.companies.flatMap((c) => c.teams.map((t) => ({ c, t }))));
+  const viewAlloc = Math.round(viewTeams.reduce((s, { t }) => s + (t.pct / 100) * total, 0) * 100) / 100;
+  const viewUsed = Math.round(viewTeams.reduce((s, { c, t }) => {
+    const perCo = usage[`${c.id.toUpperCase()}::${t.summaryGroup}`];
+    return s + (perCo?.used ?? usage[t.summaryGroup]?.used ?? 0) + (webUsage[t.id]?.used ?? 0);
+  }, 0) * 100) / 100;
+  const teamLabel = myTeams && myTeams.length ? myTeams.map(teamDisplay).join(", ") : "";
+
+  type Co = DistConfig[number]["companies"][number];
+  type Tm = Co["teams"][number];
+  /** every number a team card needs, in one place so cards, alerts and filters never disagree */
+  const cardStat = (company: Co, team: Tm) => {
+    const credit    = Math.round((team.pct / 100) * total * 100) / 100;
+    const perCo     = usage[`${company.id.toUpperCase()}::${team.summaryGroup}`];
+    const web       = webUsage[team.id];
+    const used      = Math.round(((perCo?.used ?? usage[team.summaryGroup]?.used ?? 0) + (web?.used ?? 0)) * 100) / 100;
+    const taskCount = (perCo?.count ?? usage[team.summaryGroup]?.count ?? 0) + (web?.count ?? 0);
+    const remaining = Math.max(0, credit - used);
+    const hasUsage  = used > 0;
+    const pctLeft   = credit > 0 ? (hasUsage ? Math.round((remaining / credit) * 100) : 100) : 0;
+    const usedFrac  = credit > 0 ? Math.min(1, used / credit) : 0;
+    const status: "none" | "over" | "low" | "ok" =
+      credit <= 0 ? "none" : hasUsage && remaining === 0 ? "over" : hasUsage && pctLeft <= 25 ? "low" : "ok";
+    return { credit, used, taskCount, remaining, hasUsage, pctLeft, usedFrac, status };
+  };
+  // how far into the month's working days we are (0..1); past months are fully elapsed
+  const paceFrac = (() => {
+    const t = new Date();
+    const cur = year * 12 + month, nowV = t.getFullYear() * 12 + t.getMonth() + 1;
+    if (cur < nowV) return 1;
+    if (cur > nowV) return 0;
+    const hol = new Set(getHolidaysForMonth(year, month).map((h) => h.date));
+    let done = 0;
+    for (let d = 1; d <= t.getDate(); d++) {
+      const dow = new Date(year, month - 1, d).getDay();
+      const key = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      if (dow !== 0 && dow !== 6 && !hol.has(key)) done++;
+    }
+    const info = getWorkdayInfo(year, month);
+    return info.workingDays > 0 ? Math.min(1, done / info.workingDays) : 0;
+  })();
+  const isCurrentMonth = paceFrac > 0 && paceFrac < 1;
+
+  const allCards = shownConfig.flatMap((p) => p.companies.flatMap((c) => c.teams.map((t) => ({ c, t, st: cardStat(c, t) }))));
+  const overCount = allCards.filter((x) => x.st.status === "over").length;
+  const attention = allCards.filter((x) => x.st.status === "over" || x.st.status === "low")
+    .sort((a, b) => a.st.pctLeft - b.st.pctLeft);
+  const visibleConfig: DistConfig = shownConfig
+    .map((p) => ({ ...p, companies: p.companies
+      .map((c) => {
+        let teams = c.teams.filter((t) => {
+          const k = cardStat(c, t).status;
+          return view === "all" || (view === "over" ? k === "over" : k === "over" || k === "low");
+        });
+        if (sortLow) teams = [...teams].sort((a, b) => cardStat(c, a).pctLeft - cardStat(c, b).pctLeft);
+        return { ...c, teams };
+      })
+      .filter((c) => c.teams.length > 0) }))
+    .filter((p) => p.companies.length > 0);
   const syncRemaining = () => {
     const rows: RemainingRow[] = [];
     config.forEach((priority) => {
@@ -204,8 +224,9 @@ export default function DashboardPage() {
           const credit    = Math.round((team.pct / 100) * total * 100) / 100;
           const ckey      = `${company.id.toUpperCase()}::${team.summaryGroup}`;
           const perCo     = usage[ckey];
-          const used      = perCo?.used  ?? usage[team.summaryGroup]?.used  ?? 0;
-          const taskCount = perCo?.count ?? usage[team.summaryGroup]?.count ?? 0;
+          const web       = webUsage[team.id];
+          const used      = Math.round(((perCo?.used  ?? usage[team.summaryGroup]?.used  ?? 0) + (web?.used ?? 0)) * 100) / 100;
+          const taskCount = (perCo?.count ?? usage[team.summaryGroup]?.count ?? 0) + (web?.count ?? 0);
           const remaining = Math.max(0, credit - used);
           const remainingPct = credit > 0 ? Math.round((remaining / credit) * 100) : 0;
           rows.push({
@@ -225,85 +246,130 @@ export default function DashboardPage() {
 
   return (
     <div style={{ background: "var(--bg-page)", minHeight: "calc(100vh - 56px)" }}>
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
 
-        {/* ── Header ── */}
-        <div className="mb-6 sm:mb-8">
-          <div className="flex items-start justify-between gap-4 mb-3 sm:mb-4">
-            <p className="text-xs font-black uppercase tracking-[0.15em] pt-1"
-              style={{ color: "var(--accent)" }}>Dashboard · เครดิตประจำเดือน</p>
-            <div className="flex items-center gap-3">
-              {syncStatus === "saving" && (
-                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>⏳ กำลังบันทึก…</span>
-              )}
-              {syncStatus === "saved" && (
-                <span className="text-xs font-medium" style={{ color: "#22C55E" }}>✓ บันทึกลง Sheet แล้ว</span>
-              )}
-              {syncStatus === "error" && (
-                <span className="text-xs font-medium" style={{ color: "#EF4444" }}>⚠ บันทึกไม่สำเร็จ</span>
-              )}
-              {/* Auto-sync badge */}
-              {!loading && syncStatus === "idle" && (() => {
-                const now = new Date();
-                const curYear = now.getFullYear();
-                const curMonth = now.getMonth() + 1;
-                const isCurrent = year === curYear && month === curMonth;
-                const todayStr = `${curYear}-${curMonth}-${now.getDate()}`;
-                const syncedToday = isCurrent && localStorage.getItem(AUTO_SYNC_KEY(year, month)) === todayStr;
-                return (
-                  <span className="text-[10px] font-medium hidden sm:block" style={{ color: syncedToday ? "#22C55E" : "var(--text-muted)" }}>
-                    {syncedToday ? "⏰ Auto sync แล้ววันนี้" : "⏰ Auto ทุกวันศุกร์ 10:00"}
+        {/* ── Header: one row ── */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--text-secondary)" }}>เครดิตประจำเดือน</p>
+            <h1 className="text-3xl sm:text-4xl font-bold leading-tight tracking-tight" style={{ color: "var(--text-primary)" }}>
+              {THAI_MONTHS_SHORT[month - 1]}{" "}
+              <span className="num" style={{ color: "var(--accent-strong)" }}>{buddhist}</span>
+            </h1>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+            {!isSuperAdmin && myGroups.length > 0 && (
+              <div className="inline-flex rounded-lg border p-0.5 text-xs font-semibold" role="group" aria-label="ขอบเขตข้อมูล"
+                style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+                {[{ all: false, label: `ทีมของฉัน${teamLabel ? ` (${teamLabel})` : ""}` }, { all: true, label: "ทั้งหมด" }].map((o) => (
+                  <button key={String(o.all)} type="button" aria-pressed={showAll === o.all} onClick={() => setShowAll(o.all)}
+                    className="px-3 py-1.5 rounded-md transition-colors"
+                    style={showAll === o.all ? { background: "var(--bg-dark)", color: "#fff" } : { color: "var(--text-secondary)" }}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <MonthSelector className="flex-1 sm:flex-none" year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
+            <Link href="/new-task"
+              className="btn-primary inline-flex items-center gap-1.5 rounded-xl h-11 px-5 text-sm font-semibold shrink-0">
+              <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M10 4v12M4 10h12" /></svg>
+              <span className="sm:hidden">ส่งรีเควส</span><span className="hidden sm:inline">ส่งรีเควสงาน</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* ── Credit summary: one compact band ── */}
+        {(() => {
+          const pool = filterOn ? viewAlloc : total;
+          const used = filterOn ? viewUsed : totalUsed;
+          const left = Math.max(0, Math.round((pool - used) * 100) / 100);
+          const usedPct = pool > 0 ? Math.min(100, Math.round((used / pool) * 100)) : 0;
+          const n = new Date();
+          const syncedToday = year === n.getFullYear() && month === n.getMonth() + 1
+            && localStorage.getItem(AUTO_SYNC_KEY(year, month)) === `${n.getFullYear()}-${n.getMonth() + 1}-${n.getDate()}`;
+          const dim = { color: "rgba(255,255,255,0.7)" };
+          return (
+            <div className="surface-dark p-5 sm:p-6 mb-7">
+              <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={dim}>{filterOn ? `ทีม ${teamLabel}` : `รวมทั้งทีม ${TEAM_MEMBERS.filter((m) => !m.excludeFromCredits).length} คน`}</p>
+                  <p className="flex items-baseline gap-2 mt-1">
+                    <span className="num text-5xl sm:text-6xl font-bold leading-none tracking-tight">{pool.toLocaleString()}</span>
+                    <span className="text-sm font-medium" style={dim}>M Coin</span>
+                  </p>
+                </div>
+                <dl className="flex gap-3">
+                  <div className="rounded-2xl px-4 py-2.5 min-w-[6.5rem]" style={{ background: "rgba(255,255,255,0.08)" }}>
+                    <dt className="text-xs" style={dim}>ใช้ไป</dt>
+                    <dd className="num text-xl font-semibold leading-tight">{used.toLocaleString()}</dd>
+                  </div>
+                  <div className="rounded-2xl px-4 py-2.5 min-w-[6.5rem]" style={{ background: "rgba(232,81,30,0.22)" }}>
+                    <dt className="text-xs" style={dim}>คงเหลือ</dt>
+                    <dd className="num text-xl font-semibold leading-tight" style={{ color: "#FFB599" }}>{left.toLocaleString()}</dd>
+                  </div>
+                </dl>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden mt-5" style={{ background: "rgba(255,255,255,0.12)" }}
+                role="img" aria-label={`ใช้ไปแล้ว ${usedPct}%`}>
+                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${usedPct}%`, background: "linear-gradient(90deg,#FF8A63,#E8511E)" }} />
+              </div>
+              <p className="num text-xs mt-2 text-right" style={dim}>ใช้ไปแล้ว {usedPct}%</p>
+              {isSuperAdmin && !IS_BETA && (
+                <div className="flex items-center gap-3 mt-2.5 text-xs">
+                  <button type="button" onClick={syncRemaining} disabled={loading || syncStatus === "saving"}
+                    className="font-semibold px-2.5 py-1 rounded-md border transition-colors hover:bg-white/10 disabled:opacity-50"
+                    style={{ borderColor: "rgba(255,255,255,0.25)", color: "#fff" }}>
+                    Sync คงเหลือ
+                  </button>
+                  <span role={syncStatus === "error" ? "alert" : "status"}
+                    style={{ color: syncStatus === "error" ? "#FCA5A5" : syncStatus === "saved" || syncedToday ? "#86EFAC" : "rgba(255,255,255,0.7)" }}>
+                    {syncStatus === "saving" ? "กำลังบันทึก…"
+                      : syncStatus === "saved" ? "✓ บันทึกลง Sheet แล้ว"
+                      : syncStatus === "error" ? "บันทึกไม่สำเร็จ · ลองใหม่"
+                      : syncedToday ? "Auto sync แล้ววันนี้" : "Auto sync ทุกวันศุกร์ 10:00"}
                   </span>
-                );
-              })()}
-              {!loading && syncStatus === "idle" && (
-                <button
-                  onClick={syncRemaining}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all hover:opacity-80"
-                  style={{ borderColor: "var(--border)", color: "var(--text-muted)", background: "var(--bg-card)" }}>
-                  ↑ Sync คงเหลือ
-                </button>
+                </div>
               )}
-              <MonthSelector year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
             </div>
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-black leading-none tracking-tight"
-            style={{ color: "var(--text-primary)" }}>
-            {THAI_MONTHS_SHORT[month - 1]}{" "}
-            <span style={{ color: "var(--accent)" }}>{buddhist}</span>
-          </h1>
-          <p className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>
-            เครดิต M Coin ที่แต่ละทีมได้รับสำหรับเดือนนี้
-          </p>
-        </div>
+          );
+        })()}
 
-        {/* ── Total hero ── */}
-        <div className="rounded-2xl p-5 sm:p-6 mb-6 flex items-center justify-between gap-4 overflow-hidden relative"
-          style={{ background: "var(--bg-dark)" }}>
-          <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full opacity-10" style={{ background: "var(--accent)" }} />
-          <div className="absolute -right-2 bottom-0 w-48 h-48 rounded-full opacity-5" style={{ background: "var(--accent)" }} />
-          <div className="relative">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] mb-1" style={{ color: "rgba(255,255,255,0.5)" }}>
-              เครดิตรวมทั้งทีม
-            </p>
-            <div className="flex items-end gap-2">
-              <span className="text-4xl sm:text-5xl font-black text-white leading-none">{total}</span>
-              <span className="text-base font-bold mb-1" style={{ color: "rgba(255,255,255,0.6)" }}>M Coin</span>
+        {/* ── Filter / sort ── */}
+        {!loading && (
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+            {isSuperAdmin ? (
+            <div className="inline-flex rounded-full border p-1 text-xs font-semibold" role="group" aria-label="กรองการ์ด"
+              style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+              {([["all", "ทั้งหมด", allCards.length], ["attention", "ใกล้หมด", attention.length], ["over", "ใช้เกิน", overCount]] as const).map(([k, label, n]) => (
+                <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}
+                  className="px-3.5 py-1.5 rounded-full transition-all"
+                  style={view === k ? { background: "var(--bg-dark)", color: "#fff" } : { color: "var(--text-secondary)" }}>
+                  {label} <span className="num opacity-70">{n}</span>
+                </button>
+              ))}
             </div>
-            <p className="text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-              {THAI_MONTHS_SHORT[month - 1]} {buddhist} · {TEAM_MEMBERS.filter(m => !m.excludeFromCredits).length} คน
-              {totalUsed > 0 && (
-                <span style={{ color: "var(--accent)" }}> · ใช้ไปแล้ว {totalUsed.toLocaleString()} M Coin</span>
-              )}
-            </p>
-          </div>
-          <div className="relative shrink-0 hidden sm:block">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl"
-              style={{ background: "var(--accent)" }}>
-              💰
+            ) : <span />}
+            <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-full border p-1 text-xs font-semibold" role="group" aria-label="รูปแบบการแสดงผล"
+              style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+              {([["card", "การ์ด"], ["table", "ตาราง"]] as const).map(([k, label]) => (
+                <button key={k} type="button" aria-pressed={layout === k} onClick={() => pickLayout(k)}
+                  className="px-3.5 py-1.5 rounded-full transition-all"
+                  style={layout === k ? { background: "var(--bg-dark)", color: "#fff" } : { color: "var(--text-secondary)" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button type="button" aria-pressed={sortLow} onClick={() => setSortLow((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-semibold transition-all"
+              style={sortLow ? { background: "var(--bg-dark)", color: "#fff", borderColor: "var(--bg-dark)" } : { background: "var(--bg-card)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+              <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6 4v12M3 13l3 3 3-3M14 16V4M11 7l3-3 3 3" /></svg>
+              เหลือน้อยก่อน
+            </button>
             </div>
           </div>
-        </div>
+        )}
 
         {/* ── Priority sections → Company cards ── */}
         {loading ? (
@@ -318,21 +384,18 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col gap-8 mb-6">
-            {config.map((priority) => (
-              <div key={priority.id}>
-                {/* Priority header */}
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="h-2.5 w-2.5 rounded-full" style={{ background: priority.bgColor }} />
-                  <p className="text-[11px] font-black uppercase tracking-widest"
-                    style={{ color: priority.bgColor }}>
-                    {priority.name}
-                  </p>
-                  <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+          <div className="flex flex-col gap-6 mb-4">
+            {visibleConfig.length === 0 && (
+              <p className="surface px-5 py-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>ไม่มีทีมที่ตรงกับตัวกรองนี้ 🎉</p>
+            )}
+            {visibleConfig.map((priority) => (
+              <section key={priority.id} aria-label={priority.name}>
+                <div className="flex items-center gap-3 mb-4 pb-2.5 border-b" style={{ borderColor: "var(--border)" }}>
+                  <span className="w-1 h-6 rounded-full" style={{ background: priority.bgColor }} aria-hidden />
+                  <h2 className="text-xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>{priority.name}</h2>
                 </div>
 
-                {/* Companies */}
-                <div className="flex flex-col gap-5">
+                <div className="flex flex-col gap-4">
                   {priority.companies.map((company) => {
                     const companyCredit = Math.round(
                       company.teams.reduce((s, t) => s + (t.pct / 100) * total, 0) * 100
@@ -341,122 +404,135 @@ export default function DashboardPage() {
 
                     return (
                       <div key={company.id}>
-                        {/* Company subheader */}
-                        <div className="flex items-center gap-2 mb-2.5">
-                          <p className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded"
-                            style={{ background: priority.bgColor + "22", color: priority.bgColor }}>
-                            {company.name}
-                          </p>
-                          <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>
+                        <div className="flex items-baseline gap-3 mb-2.5">
+                          <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{company.name}</h3>
+                          <span className="num text-xs rounded-full px-2 py-0.5" style={{ background: "var(--border)", color: "var(--text-secondary)" }}>
                             {companyPct}% · {companyCredit.toLocaleString()} M Coin
                           </span>
-                          <div className="flex-1 h-px" style={{ background: "var(--border)", opacity: 0.5 }} />
                         </div>
 
-                        {/* Team cards */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-3">
+                        {layout === "table" ? (
+                          <div className="surface px-4 sm:px-5 py-1">
+                            <div className="hidden sm:grid grid-cols-[1.4fr_0.8fr_1.6fr_1fr] gap-x-4 py-2.5 text-xs" style={{ color: "var(--text-secondary)" }} aria-hidden>
+                              <span>ทีม</span><span className="text-right">คงเหลือ (M Coin)</span><span>การใช้งาน</span><span className="text-right">ใช้ / โควตา</span>
+                            </div>
+                            <ul>
+                              {company.teams.map((team) => {
+                                const { credit, used, taskCount, remaining, hasUsage, usedFrac, status } = cardStat(company, team);
+                                const tone = status === "over" ? "var(--danger)" : status === "low" ? "var(--warning)" : status === "none" ? "var(--text-muted)" : "var(--text-primary)";
+                                const barTone = status === "over" ? "var(--danger)" : status === "low" ? "var(--warning)" : "var(--accent)";
+                                return (
+                                  <li key={team.id} id={`card-${company.id}-${team.id}`}
+                                    className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[1.4fr_0.8fr_1.6fr_1fr] items-center gap-x-4 gap-y-1.5 py-3 text-sm"
+                                    style={{ borderTop: "1px solid var(--border)" }}>
+                                    <span className="font-semibold truncate" style={{ color: "var(--text-primary)" }} title={team.name}>{team.name}</span>
+                                    <span className="num text-right text-lg font-bold leading-none" style={{ color: tone }}>
+                                      {credit > 0 ? (hasUsage ? remaining : credit).toLocaleString() : "—"}
+                                    </span>
+                                    <div className="col-span-2 sm:col-span-1 relative h-2 rounded-full" style={{ background: "var(--border)" }}
+                                      role="img" aria-label={credit > 0 ? `ใช้ไปแล้ว ${Math.round(usedFrac * 100)}%` : "ยังไม่ได้จัดสรร"}>
+                                      {credit > 0 && <div className="h-full rounded-full" style={{ width: `${Math.round(usedFrac * 100)}%`, background: barTone }} />}
+                                      {isSuperAdmin && isCurrentMonth && credit > 0 && (
+                                        <span className="absolute -top-1 -bottom-1 w-0.5 rounded-full" style={{ left: `${Math.round(paceFrac * 100)}%`, background: "var(--text-primary)", opacity: 0.55 }}
+                                          title={`ตามแผนควรใช้ไปราว ${Math.round(paceFrac * 100)}% แล้ว`} aria-hidden />
+                                      )}
+                                    </div>
+                                    <span className="col-span-2 sm:col-span-1 num flex sm:justify-end justify-between gap-3 text-xs" style={{ color: "var(--text-secondary)" }}>
+                                      <span style={status === "over" ? { color: "var(--danger)", fontWeight: 600 } : undefined}>
+                                        {credit <= 0 ? "ยังไม่ได้จัดสรร" : hasUsage ? `${fmtN(used)} / ${fmtN(credit)}` : `0 / ${fmtN(credit)}`}
+                                      </span>
+                                      <span className="sm:hidden">{taskCount > 0 ? `${taskCount} ชิ้น` : ""}</span>
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                           {company.teams.map((team) => {
-                            const credit    = Math.round((team.pct / 100) * total * 100) / 100;
-                            const ckey      = `${company.id.toUpperCase()}::${team.summaryGroup}`;
-                            const perCo     = usage[ckey];
-                            const used      = perCo?.used  ?? usage[team.summaryGroup]?.used  ?? 0;
-                            const taskCount = perCo?.count ?? usage[team.summaryGroup]?.count ?? 0;
-                            const remaining = Math.max(0, credit - used);
-                            const barWidth  = credit > 0 ? Math.round((remaining / credit) * 100) : 0;
-                            const isEmpty   = used > 0 && credit > 0 && remaining === 0;
-                            const isLow     = credit > 0 && barWidth <= 25 && used > 0;
-                            const hasUsage  = used > 0;
-                            const icon      = TEAM_ICONS[team.name] ?? <IconTag />;
+                            const { credit, used, taskCount, remaining, hasUsage, usedFrac, status } = cardStat(company, team);
+                            const isEmpty = status === "over";
+                            const isLow   = status === "low";
+                            // colour is reserved for exceptions: cards are neutral unless a team is low (amber) or over (red)
+                            const tone =
+                              status === "none" ? "var(--text-muted)"
+                              : isEmpty ? "var(--danger)"
+                              : isLow ? "var(--warning)"
+                              : "var(--text-primary)";
+                            const ringTone = status === "ok" ? "var(--accent)" : tone;
+                            const ahead = isSuperAdmin && isCurrentMonth && status === "ok" && usedFrac > paceFrac + 0.1;
 
                             return (
-                              <div key={team.id}
-                                className="rounded-xl border p-3 sm:p-4 flex flex-col gap-2 transition-all hover:shadow-md"
-                                style={{ background: "var(--bg-card)", borderColor: "var(--border)", opacity: isEmpty ? 0.5 : 1 }}>
-
-                                {/* Icon + task badge */}
-                                <div className="flex items-start justify-between">
-                                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0"
-                                    style={{ background: "var(--accent-light)", color: "var(--accent)" }}>
-                                    {icon}
-                                  </div>
-                                  <span className="text-[9px] font-black rounded-full px-1.5 py-0.5"
-                                    style={{ background: "var(--bg-page)", color: "var(--text-muted)" }}>
-                                    {taskCount > 0 ? `${taskCount} ชิ้น` : "—"}
-                                  </span>
+                              <div key={team.id} id={`card-${company.id}-${team.id}`} tabIndex={-1}
+                                className="surface lift p-4 flex flex-col gap-3.5 h-full scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                                style={isEmpty ? { borderColor: "var(--danger-line)" }
+                                  : status === "ok" ? { background: "linear-gradient(180deg, var(--accent-light) 0%, var(--bg-card) 58%)" } : undefined}>
+                                {/* 1 · who */}
+                                <div className="flex items-center justify-between gap-2 min-w-0">
+                                  <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }} title={team.name}>
+                                    {team.name}
+                                  </p>
+                                  {credit > 0 && (
+                                    <svg viewBox="0 0 36 36" width="32" height="32" className="shrink-0 -rotate-90" role="img"
+                                      aria-label={`คงเหลือ ${100 - Math.round(usedFrac * 100)}%${isSuperAdmin && isCurrentMonth ? ` · ตามแผนควรเหลือราว ${100 - Math.round(paceFrac * 100)}%` : ""}`}>
+                                      <circle cx="18" cy="18" r="14" fill="none" strokeWidth="5" stroke="var(--border)" />
+                                      <circle cx="18" cy="18" r="14" fill="none" strokeWidth="5" strokeLinecap="round" stroke={ringTone}
+                                        pathLength={100} strokeDasharray={`${100 - Math.round(usedFrac * 100)} 100`} />
+                                      {isSuperAdmin && isCurrentMonth && (
+                                        <line x1="29.5" y1="18" x2="35" y2="18" strokeWidth="2" strokeLinecap="round" stroke="var(--text-primary)" opacity="0.6"
+                                          transform={`rotate(${Math.round((1 - paceFrac) * 360)} 18 18)`}>
+                                          <title>{`ตามแผนควรเหลือราว ${100 - Math.round(paceFrac * 100)}% แล้ว`}</title>
+                                        </line>
+                                      )}
+                                    </svg>
+                                  )}
                                 </div>
 
-                                {/* Team name */}
-                                <p className="text-[9px] font-black uppercase tracking-widest leading-tight"
-                                  style={{ color: "var(--text-muted)" }}>
-                                  {team.name}
-                                </p>
-
-                                {/* Credit / remaining */}
-                                <div className="mt-auto">
-                                  {hasUsage ? (
-                                    <>
-                                      <p className="text-[8px] font-black uppercase tracking-widest mb-0.5"
-                                        style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--text-muted)" }}>
-                                        {isEmpty ? "ใช้ครบแล้ว" : "คงเหลือ"}
-                                      </p>
-                                      <div className="flex items-end gap-0.5 mb-0.5">
-                                        <span className="text-xl sm:text-2xl font-black leading-none"
-                                          style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : "var(--accent)" }}>
-                                          {isEmpty ? "0" : remaining.toLocaleString()}
-                                        </span>
-                                        <span className="text-[10px] font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M</span>
-                                      </div>
-                                      <p className="text-[9px] mb-1.5" style={{ color: "var(--text-muted)" }}>
-                                        ทั้งหมด {credit} · ใช้ {used}
-                                      </p>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <p className="text-[8px] font-black uppercase tracking-widest mb-0.5"
-                                        style={{ color: "var(--text-muted)" }}>เครดิต</p>
-                                      <div className="flex items-end gap-0.5 mb-1.5">
-                                        <span className="text-xl sm:text-2xl font-black leading-none"
-                                          style={{ color: credit > 0 ? "var(--accent)" : "var(--text-muted)" }}>
-                                          {credit > 0 ? credit.toLocaleString() : "—"}
-                                        </span>
-                                        {credit > 0 && (
-                                          <span className="text-[10px] font-semibold mb-0.5" style={{ color: "var(--text-muted)" }}>M</span>
-                                        )}
-                                      </div>
-                                    </>
-                                  )}
-
-                                  {/* Bar */}
-                                  <div className="h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                                    <div className="h-full rounded-full transition-all duration-700"
-                                      style={{
-                                        width: hasUsage ? `${barWidth}%` : "100%",
-                                        background: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : priority.bgColor,
-                                        opacity: credit > 0 ? 1 : 0,
-                                      }} />
-                                  </div>
-                                  <div className="flex justify-between mt-0.5">
-                                    <span className="text-[8px]" style={{ color: "var(--text-muted)" }}>0</span>
-                                    <span className="text-[8px] font-bold" style={{ color: isEmpty ? "#EF4444" : isLow ? "#F59E0B" : priority.bgColor }}>
-                                      {hasUsage ? `${barWidth}%` : "100%"}
+                                {/* 2 · the number that matters: what is left */}
+                                <div>
+                                  <p className="text-xs mb-1" style={{ color: "var(--text-secondary)" }}>{credit > 0 ? "คงเหลือ" : "เครดิต"}</p>
+                                  <p className="flex items-baseline gap-1.5">
+                                    <span className="num text-3xl font-bold leading-none" style={{ color: tone }}>
+                                      {credit > 0 ? (hasUsage ? remaining : credit).toLocaleString() : "—"}
                                     </span>
-                                  </div>
+                                    {credit > 0 && <span className="text-xs" style={{ color: "var(--text-secondary)" }}>M Coin</span>}
+                                  </p>
+                                  {ahead && (
+                                    <p className="inline-block mt-1.5 text-xs font-semibold rounded-md px-1.5 py-0.5" style={{ background: "var(--warning-bg)", color: "var(--warning)" }}>ใช้เร็วกว่าแผน</p>
+                                  )}
+                                  {(isEmpty || isLow) && (
+                                    <p className="inline-block mt-1.5 text-xs font-semibold rounded-md px-1.5 py-0.5"
+                                      style={isEmpty
+                                        ? { background: "var(--danger-bg)", color: "var(--danger)" }
+                                        : { background: "var(--warning-bg)", color: "var(--warning)" }}>
+                                      {isEmpty ? `เกินโควตา ${fmtN(used - credit)}` : "เหลือน้อย"}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* 3 · how it got there */}
+                                <div className="mt-auto pt-3 border-t flex items-center justify-between gap-2 num text-xs" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+                                  <span className="whitespace-nowrap rounded-md px-2 py-0.5 font-medium" style={status === "over" ? { background: "var(--danger-bg)", color: "var(--danger)" } : status === "low" ? { background: "var(--warning-bg)", color: "var(--warning)" } : { background: "var(--accent-light)", color: "var(--accent-strong)" }}>
+                                    {credit <= 0 ? "ยังไม่ได้จัดสรร" : hasUsage ? `ใช้ ${fmtN(used)} / ${fmtN(credit)}` : `ยังไม่มีการใช้ · ${fmtN(credit)}`}
+                                  </span>
+                                  <span className="shrink-0 whitespace-nowrap">{taskCount > 0 ? `${taskCount} ชิ้น` : "—"}</span>
                                 </div>
                               </div>
                             );
                           })}
                         </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-              </div>
+              </section>
             ))}
           </div>
         )}
 
-        {/* Footer */}
-        <p className="text-[10px] mt-2 text-center" style={{ color: "var(--text-muted)" }}>
+        <p className="text-xs mt-2 text-center" style={{ color: "var(--text-muted)" }}>
           เครดิตคำนวณจาก % ที่จัดสรรใน Credit Distribution · ใช้ไปจาก [sum] All Task(in Notion)
         </p>
       </div>

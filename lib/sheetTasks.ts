@@ -1,3 +1,5 @@
+import { parseCSV as parseCSVRows } from "./csv";
+
 const SHEET_ID = "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY";
 const GID      = "1206331278";
 
@@ -235,4 +237,32 @@ export async function fetchTaskUsage(
   }
 
   return {};
+}
+
+/**
+ * Tasks created per team over the last `days` days, keyed by the raw team name in the
+ * '[sum] All Task(in Notion)' tab (same names as the "Task Team Creator" options).
+ * Used to order the team picker so the busiest teams come first.
+ */
+export async function fetchTeamActivity(days = 30): Promise<Record<string, number>> {
+  const tabName = encodeURIComponent("[sum] All Task(in Notion)");
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${tabName}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(String(res.status));
+  const [headers, ...rows] = parseCSVRows(await res.text());
+  if (!headers) return {};
+
+  const teamIdx = headers.findIndex((h) => /^ทีม$/i.test(h.trim()));
+  const dateIdx = headers.findIndex((h) => /วันที่|date/i.test(h));
+  if (teamIdx < 0 || dateIdx < 0) return {};
+
+  const since = Date.now() - days * 24 * 60 * 60 * 1000;
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const [m, d, y] = (r[dateIdx] ?? "").split("/").map((x) => parseInt(x, 10)); // M/D/YYYY
+    if (!m || !d || !y || new Date(y, m - 1, d).getTime() < since) continue;
+    const team = (r[teamIdx] ?? "").trim();
+    if (team) out[team] = (out[team] ?? 0) + 1;
+  }
+  return out;
 }

@@ -1,5 +1,12 @@
 name: Deploy to GitHub Pages
 
+# One Pages site serves two builds:
+#   main → https://spysmall.github.io/Credit-Addsign/        (live)
+#   beta → https://spysmall.github.io/Credit-Addsign/beta/   (test, read-only)
+# Every run rebuilds both, so neither overwrites the other. It always runs on main (the only
+# branch allowed to deploy to the github-pages environment); a push to beta starts it through
+# beta-redeploy.yml.
+
 on:
   push:
     branches: [main]
@@ -18,26 +25,66 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main (live site)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-src
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
+      - name: Build live site
+        working-directory: main-src
+        run: |
+          npm ci
+          npm run build
         env:
           NEXT_PUBLIC_DIST_SCRIPT_URL: https://script.google.com/macros/s/AKfycbxvMjWKjx9nXnGYUFEuqMx36miaEuU2ma1UvatTUowoELen3R-J0YHbyrPNRTuEvJI/exec
+
+      - name: Check for beta branch
+        id: beta
+        run: |
+          if git ls-remote --exit-code --heads "https://github.com/${{ github.repository }}.git" beta >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout beta (test site)
+        if: steps.beta.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: beta
+          path: beta-src
+
+      - name: Build test site
+        if: steps.beta.outputs.exists == 'true'
+        working-directory: beta-src
+        run: |
+          npm ci
+          npm run build
+        env:
+          # no NEXT_PUBLIC_DIST_SCRIPT_URL → the test site never writes to Google Sheets
+          NEXT_PUBLIC_BASE_PATH: /Credit-Addsign/beta
+          NEXT_PUBLIC_APP_ENV: beta
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: 1026556679375-gun2k6t7bmm5c7n373t0uatrl9le7864.apps.googleusercontent.com
+
+      - name: Assemble site
+        run: |
+          mkdir -p site
+          cp -R main-src/out/. site/
+          if [ -d beta-src/out ]; then
+            mkdir -p site/beta
+            cp -R beta-src/out/. site/beta/
+          fi
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: out
+          path: site
 
   deploy:
     needs: build
