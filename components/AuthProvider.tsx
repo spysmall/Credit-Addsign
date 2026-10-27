@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AssignSession, GOOGLE_CLIENT_ID, clearSession, isSuperAdmin, loadSession, saveSession, sessionFromCredential,
 } from "@/lib/assignSession";
@@ -106,6 +107,7 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
   const [badLogin, setBadLogin] = useState(false);
   const [retry, setRetry]     = useState(0);
   const [tasksVersion, setTasksVersion] = useState(0);
+  const router = useRouter();
 
   useEffect(() => { setSession(loadSession()); }, []);
 
@@ -146,7 +148,9 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
     setBadLogin(false);
     saveSession(s);
     setSession(s);
-  }, []);
+    // a fresh sign-in lands on the Dashboard; links that carry their own target (?edit=…) are kept
+    if (!window.location.search) router.replace("/dashboard");
+  }, [router]);
 
   const signOut = useCallback(() => {
     clearSession();

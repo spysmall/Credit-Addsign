@@ -17,7 +17,7 @@ import {
 } from "@/lib/priceTable";
 import {
   AssignedTask, COMPANY_OPTIONS, PRIORITIES, PROJECTS, TEAM_OPTIONS, WORK_TYPES,
-  addAssigned, newTaskId, projectDisplay, recentTeamCounts, resolveCard, updateAssigned, webCreditByCompany, teamAvailability, teamDisplay, teamGroup, webUsedForGroup,
+  addAssigned, isMyTask, loadAssigned, newTaskId, projectDisplay, recentTeamCounts, resolveCard, updateAssigned, webCreditByCompany, teamAvailability, teamDisplay, teamGroup, webUsedForGroup,
 } from "@/lib/taskAssign";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
@@ -79,7 +79,11 @@ function NewTaskForm() {
   const [files, setFiles]           = useState<{ name: string; size: number }[]>([]);
   const [tried, setTried]           = useState(false);
   const [notice, setNotice]         = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  // confirmation popup after a successful submit
+  const [done, setDone] = useState<{ task: AssignedTask; edited: boolean; remaining: number; notion: "off" | "pending" | "ok" | "error"; url?: string; error?: string } | null>(null);
   const [step, setStep]           = useState(1);
+  // set when the page was opened as /new-task?edit=<id> for a request that hasn't reached Notion yet
+  const [editing, setEditing] = useState<AssignedTask | null>(null);
   const formTop = useRef<HTMLDivElement>(null);
   const nextLineId = useRef(2);
 
@@ -165,7 +169,9 @@ function NewTaskForm() {
   // the company only decides which dashboard card the spend is attributed to.
   const group    = teamCreator ? teamGroup(teamCreator) : null;
   const resolved = !loadingData && teamCreator && company ? resolveCard(config, company, teamCreator) : null;
-  const avail    = !loadingData && group ? teamAvailability(config, total, usage, group, webUsedForGroup(year, month, group)) : null;
+  // while editing, the request's own old credit is still counted as used — give it back for the check
+  const ownCredit = editing && teamGroup(editing.teamCreator) === group ? editing.useCredit : 0;
+  const avail    = !loadingData && group ? teamAvailability(config, total, usage, group, webUsedForGroup(year, month, group) - ownCredit) : null;
   const shortfall = avail ? Math.max(0, Math.round((useCredit - avail.remaining) * 100) / 100) : 0;
   const notEnough = !!avail && useCredit > avail.remaining;
 
@@ -278,19 +284,46 @@ function NewTaskForm() {
     setNeedBy(""); setUseDate(""); setFiles([]); setTried(false); setStep(1);
   }
 
+  // open an existing request for editing (only mine, this month, not yet in Notion)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("edit");
+    if (!id) return;
+    const t = loadAssigned(year, month).find((x) => x.id === id);
+    if (!t || t.notionUrl || t.cancelled || t.deletedAt || !isMyTask(t, user.email)) {
+      setNotice({ kind: "error", text: "แก้ไขงานนี้ไม่ได้ (ส่งเข้า Notion แล้ว, ถูกยกเลิก หรือไม่ใช่งานของเดือนนี้)" });
+      return;
+    }
+    const prefix = t.projects.length ? `[${t.projects.map(projectDisplay).join(", ")}] ` : "";
+    setEditing(t);
+    setTitle(t.title.startsWith(prefix) ? t.title.slice(prefix.length) : t.title);
+    setPriority(t.priority); setProjects(t.projects);
+    setCreatedBy({ email: t.createdByEmail ?? "", name: t.createdBy });
+    setOwner(t.ownerEmail ? { email: t.ownerEmail, name: t.owner.split(" : ").pop() ?? t.owner } : me);
+    setTeamCreator(t.teamCreator); setCompany(t.company);
+    setLines(t.lines.map((l) => ({ id: nextLineId.current++, code: l.code, requestType: l.requestType, qty: l.qty })));
+    setTypesExtra(t.workTypes); setTypesOff([]);
+    setSummaryDraft(t.summary); setSummaryEdited(true);
+    setLink(t.link); setObjective(t.objective); setNeedBy(t.needBy); setUseDate(t.useDate); setFiles(t.refFiles);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function stopEditing() {
+    setEditing(null);
+    window.history.replaceState(null, "", window.location.pathname);
+  }
+
   function submit() {
     setTried(true);
     setNotice(null);
     if (firstError || !resolved) return;
     // re-check against fresh storage so two open tabs can't overspend
-    const fresh = teamAvailability(config, total, usage, group!, webUsedForGroup(year, month, group!));
+    const fresh = teamAvailability(config, total, usage, group!, webUsedForGroup(year, month, group!) - ownCredit);
     if (useCredit > fresh.remaining) {
       setNotice({ kind: "error", text: `เครดิตไม่พอ — คงเหลือ ${fmt(fresh.remaining)} แต่งานนี้ใช้ ${fmt(useCredit)}` });
       return;
     }
     const task: AssignedTask = {
-      id: newTaskId(),
-      createdAt: new Date().toISOString(),
+      id: editing?.id ?? newTaskId(),
+      createdAt: editing?.createdAt ?? new Date().toISOString(),
       year, month,
       cardId: resolved.card.id,
       creatorEmail: user.email,
@@ -308,23 +341,24 @@ function NewTaskForm() {
       }),
     };
     try {
-      addAssigned(task);
+      if (editing) updateAssigned(year, month, task.id, task);
+      else addAssigned(task);
     } catch {
       setNotice({ kind: "error", text: "บันทึกไม่สำเร็จ (พื้นที่เบราว์เซอร์เต็มหรือถูกปิด)" });
       return;
     }
-    const added = `แอดงาน "${task.title}" แล้ว · หักเครดิต ${fmt(task.useCredit)} M Coin`;
-    setNotice({ kind: "ok", text: NOTION_ENABLED ? `${added} · กำลังสร้าง Task ใน Notion…` : added });
+    if (editing) stopEditing();
+    setDone({ task, edited: !!editing, remaining: Math.round((fresh.remaining - useCredit) * 100) / 100, notion: NOTION_ENABLED ? "pending" : "off" });
     if (NOTION_ENABLED) {
       pushTaskToNotion(task)
         .then(({ url }) => {
           updateAssigned(task.year, task.month, task.id, { notionUrl: url, notionPushedAt: new Date().toISOString() });
-          setNotice({ kind: "ok", text: `${added} · สร้าง Task ใน Notion แล้ว` });
+          setDone((d) => (d && d.task.id === task.id ? { ...d, notion: "ok", url } : d));
         })
-        .catch(() => setNotice({ kind: "error", text: `${added} · แต่ส่งเข้า Notion ไม่สำเร็จ — ไปที่ "งานของฉัน" เพื่อลองส่งใหม่` }));
+        .catch((err: unknown) => setDone((d) => (d && d.task.id === task.id
+          ? { ...d, notion: "error", error: err instanceof Error ? err.message : String(err) } : d)));
     }
     resetForm();
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   const afterRemaining = avail ? Math.round((avail.remaining - useCredit) * 100) / 100 : 0;
@@ -336,12 +370,20 @@ function NewTaskForm() {
         <div className="mb-6">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] mb-1" style={{ color: "var(--text-secondary)" }}>Assign Task</p>
           <h1 className="text-3xl sm:text-4xl font-bold leading-tight tracking-tight" style={{ color: "var(--text-primary)" }}>
-            ส่งรีเควสงาน <span className="num" style={{ color: "var(--accent-strong)" }}>{THAI_MONTHS_SHORT[month - 1]} {year + 543}</span>
+            {editing ? "แก้ไขรีเควส" : "ส่งรีเควสงาน"} <span className="num" style={{ color: "var(--accent-strong)" }}>{THAI_MONTHS_SHORT[month - 1]} {year + 543}</span>
           </h1>
           <p className="text-sm mt-2 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
             ระบบคำนวณเครดิตจากตารางราคาและหักจากเครดิตของทีมทันที ถ้าเครดิตไม่พอจะส่งรีเควสไม่ได้
           </p>
         </div>
+
+        {editing && (
+          <div className="rounded-xl border px-4 py-3 mb-5 text-sm flex flex-wrap items-center justify-between gap-3"
+            style={{ background: "var(--warning-bg)", borderColor: "var(--warning-line)", color: "var(--warning)" }}>
+            <span>กำลังแก้ไข <b>{editing.title}</b> · บันทึกแล้วจะใช้แทนรีเควสเดิม (คืนเครดิตเดิม {fmt(editing.useCredit)} แล้วหักตามใหม่)</span>
+            <button type="button" onClick={() => { stopEditing(); resetForm(); }} className="font-semibold underline underline-offset-2">ยกเลิกการแก้ไข</button>
+          </div>
+        )}
 
         {notice && (
           <div role="status" className="rounded-xl border px-4 py-3 mb-5 text-sm font-semibold flex items-center justify-between gap-3"
@@ -600,7 +642,7 @@ function NewTaskForm() {
                 ) : (
                   <button type="submit" disabled={tried && !canSubmit}
                     className="btn-primary max-sm:flex-1 rounded-xl px-7 py-3 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-                    ส่งรีเควส · ใช้ {fmt(useCredit)} M Coin
+                    {editing ? "บันทึกการแก้ไข" : "ส่งรีเควส"} · ใช้ {fmt(useCredit)} M Coin
                   </button>
                 )}
               </div>
@@ -655,6 +697,7 @@ function NewTaskForm() {
           </aside>
         </div>
 
+      {done && <SubmittedDialog done={done} onClose={() => { setDone(null); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
     </div>
   );
 }
@@ -775,6 +818,85 @@ function Row({ k, v, accent, bold, danger }: { k: string; v: string; accent?: bo
       <dt>{k}</dt>
       <dd className={bold ? "font-bold text-sm num" : "font-semibold num"}
         style={{ color: danger ? "#FCA5A5" : accent ? "var(--accent)" : bold ? "#fff" : undefined }}>{v}</dd>
+    </div>
+  );
+}
+
+/** Confirmation popup after a request is submitted: what was charged and where it went in Notion. */
+function SubmittedDialog({ done, onClose }: {
+  done: { task: AssignedTask; edited: boolean; remaining: number; notion: "off" | "pending" | "ok" | "error"; url?: string; error?: string };
+  onClose: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const { task, notion } = done;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(20,20,20,0.55)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="submitted-title" className="surface w-full max-w-md p-6 sm:p-7">
+        {/* one status for the whole request: saved, then created in Notion (or why not) */}
+        {(() => {
+          const st = notion === "pending" ? { bg: "var(--bg-page)", fg: "var(--text-secondary)", label: "กำลังสร้าง Task ใน Notion…" }
+            : notion === "error" ? { bg: "var(--warning-bg)", fg: "var(--warning)", label: "บันทึกแล้ว · ยังไม่เข้า Notion" }
+            : notion === "ok" ? { bg: "var(--success-bg)", fg: "var(--success)", label: "สร้างเรียบร้อยแล้ว" }
+            : { bg: "var(--success-bg)", fg: "var(--success)", label: "บันทึกเรียบร้อยแล้ว" };
+          return (
+            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold" style={{ background: st.bg, color: st.fg }} role="status">
+              {notion === "pending"
+                ? <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
+                : <span aria-hidden>{notion === "error" ? "!" : "✓"}</span>}
+              {st.label}
+            </span>
+          );
+        })()}
+        <h2 id="submitted-title" className="mt-4 text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>{done.edited ? "บันทึกการแก้ไขแล้ว" : "ส่งรีเควสแล้ว"}</h2>
+        <p className="mt-1 text-sm font-semibold break-words" style={{ color: "var(--text-secondary)" }}>{task.title}</p>
+
+        <dl className="mt-5 grid grid-cols-2 gap-3">
+          <div className="rounded-xl px-4 py-3" style={{ background: "var(--accent-light)" }}>
+            <dt className="text-xs" style={{ color: "var(--accent-strong)" }}>หักเครดิต</dt>
+            <dd className="num text-xl font-bold" style={{ color: "var(--accent-strong)" }}>{fmt(task.useCredit)} <span className="text-xs font-medium">M Coin</span></dd>
+          </div>
+          <div className="rounded-xl px-4 py-3" style={{ background: "var(--bg-page)" }}>
+            <dt className="text-xs" style={{ color: "var(--text-secondary)" }}>คงเหลือของทีม</dt>
+            <dd className="num text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmt(Math.max(0, done.remaining))} <span className="text-xs font-medium">M Coin</span></dd>
+          </div>
+        </dl>
+
+        {notion === "error" && (
+          <p className="mt-4 text-sm" style={{ color: "var(--warning)" }}>
+            ส่งเข้า Notion ไม่สำเร็จ{done.error ? ` (${done.error})` : ""} — ลองส่งใหม่ได้ที่ “งานของฉัน”
+          </p>
+        )}
+
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row-reverse">
+          {notion !== "off" && (
+            done.url ? (
+              <a href={done.url} target="_blank" rel="noopener noreferrer" className="btn-primary flex-1 rounded-xl px-5 py-3 text-center text-sm font-bold">
+                เปิดใน Notion ↗
+              </a>
+            ) : (
+              <span className="flex-1 rounded-xl px-5 py-3 text-center text-sm font-bold" aria-disabled="true"
+                style={{ background: "var(--bg-page)", color: "var(--text-muted)" }}>
+                {notion === "pending" ? "รอสร้างใน Notion…" : "ยังไม่มีลิงก์ Notion"}
+              </span>
+            )
+          )}
+          <button ref={closeRef} type="button" onClick={onClose}
+            className="flex-1 rounded-xl border px-5 py-3 text-sm font-bold transition-colors hover:bg-black/5"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+            ปิด
+          </button>
+        </div>
+        <Link href="/my-tasks" className="mt-4 block text-center text-xs font-semibold underline underline-offset-2" style={{ color: "var(--text-secondary)" }}>
+          ดูในงานของฉัน
+        </Link>
+      </div>
     </div>
   );
 }

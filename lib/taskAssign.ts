@@ -114,6 +114,7 @@ export interface AssignedTask {
   notionCheckedAt?: string; // ISO time the status was last read
   cancelled?: boolean;     // the Notion page was moved to trash → task is void and its credit is returned
   cancelledAt?: string;
+  deletedAt?: string;      // removed by its creator before it reached Notion — kept (hidden) so the shared sheet syncs the deletion
   updatedAt?: string;      // ISO time of the last change; the newer copy wins when merging with the shared sheet
 }
 
@@ -197,7 +198,7 @@ export async function syncWebTasks(): Promise<number> {
  * stops counting so the same task is not deducted twice.
  */
 export const NOTION_SYNC_GRACE_HOURS = 24;
-const countsLocally = (t: AssignedTask) => !t.cancelled && (
+const countsLocally = (t: AssignedTask) => !t.cancelled && !t.deletedAt && (
   !t.notionPushedAt || Date.now() - new Date(t.notionPushedAt).getTime() < NOTION_SYNC_GRACE_HOURS * 3_600_000);
 
 export function updateAssigned(year: number, month: number, id: string, patch: Partial<AssignedTask>) {

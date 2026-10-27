@@ -70,6 +70,7 @@ function MyTasks() {
   const [pushing, setPushing] = useState<string | null>(null);
   const [pushError, setPushError] = useState<{ id: string; reason: string } | null>(null);
   const [checking, setChecking] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [checkError, setCheckError] = useState(false);
 
   /** Read each task's current Notion status; a page moved to trash cancels the task and returns its credit. */
@@ -105,7 +106,7 @@ function MyTasks() {
   const groups = assignedMonths()
     .map(({ year, month }) => {
       const tasks = loadAssigned(year, month)
-        .filter((t) => (isSuperAdmin && showAll) || isMyTask(t, user.email))
+        .filter((t) => !t.deletedAt && ((isSuperAdmin && showAll) || isMyTask(t, user.email)))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       // credits used that month, split by the team they were charged to (biggest first)
       const byTeam = [...tasks.filter((t) => !t.cancelled).reduce((m, t) => {
@@ -176,6 +177,56 @@ function MyTasks() {
               </div>
             </button>
 
+            {/* quick actions on the closed card */}
+            {!t.cancelled && (
+              <div className="flex flex-wrap items-center gap-2 px-4 sm:px-5 pb-4 -mt-1">
+                {t.notionUrl ? (
+                  <a href={t.notionUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-[var(--accent-light)]"
+                    style={{ borderColor: "var(--border)", color: "var(--accent-strong)" }}>
+                    เปิดใน Notion ↗
+                  </a>
+                ) : (() => {
+                  const d = new Date();
+                  const thisMonth = t.year === d.getFullYear() && t.month === d.getMonth() + 1;
+                  return (
+                    <>
+                      {NOTION_ENABLED && (
+                        <button type="button" disabled={pushing === t.id} onClick={() => sendToNotion(t)}
+                          className="btn-primary rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50">
+                          {pushing === t.id ? "กำลังส่ง…" : "ส่งเข้า Notion"}
+                        </button>
+                      )}
+                      {thisMonth && (
+                        <Link href={`/new-task?edit=${encodeURIComponent(t.id)}`}
+                          className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-black/5"
+                          style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}>
+                          แก้ไข
+                        </Link>
+                      )}
+                      {confirmDelete === t.id ? (
+                        <span className="inline-flex flex-wrap items-center gap-2 rounded-lg px-3 py-1 text-xs" style={{ background: "var(--danger-bg)", color: "var(--danger)" }} role="alert">
+                          ลบรีเควสนี้และคืนเครดิต {fmt(t.useCredit)} M Coin?
+                          <button type="button" onClick={() => { updateAssigned(t.year, t.month, t.id, { deletedAt: new Date().toISOString() }); setConfirmDelete(null); setOpen(null); setTick((n) => n + 1); }}
+                            className="rounded-md px-2.5 py-1 font-bold text-white" style={{ background: "var(--danger)" }}>ลบ</button>
+                          <button type="button" onClick={() => setConfirmDelete(null)} className="font-semibold underline underline-offset-2">ไม่ลบ</button>
+                        </span>
+                      ) : (
+                        <button type="button" onClick={() => setConfirmDelete(t.id)}
+                          className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-[var(--danger-bg)]"
+                          style={{ borderColor: "var(--danger-line)", color: "var(--danger)" }}>
+                          ลบ
+                        </button>
+                      )}
+                      {pushError?.id === t.id && (
+                        <span className="w-full text-xs font-semibold" style={{ color: "var(--danger)" }} role="alert">ส่งเข้า Notion ไม่สำเร็จ · {pushError.reason}</span>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
             {expanded && (
               <div className="border-t px-4 sm:px-5 py-5 flex flex-col gap-6 text-sm" style={{ borderColor: "var(--border)" }}>
 
@@ -225,33 +276,22 @@ function MyTasks() {
                   )}
                   {t.notionUrl ? (
                     <a href={t.notionUrl} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-shadow hover:shadow-sm"
-                      style={{ borderColor: "var(--border)", color: "var(--accent-strong)" }}>
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--success)" }} aria-hidden />
-                      ส่งแล้ว · เปิดใน Notion ↗
+                      className="inline-flex items-center gap-2 text-sm font-semibold underline underline-offset-2" style={{ color: "var(--accent-strong)" }}>
+                      เปิดหน้า Task ใน Notion ↗
                     </a>
-                  ) : NOTION_ENABLED ? (
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <button type="button" disabled={pushing === t.id} onClick={() => sendToNotion(t)}
-                        className="rounded-lg border px-3 py-2 text-xs font-semibold transition-shadow hover:shadow-sm disabled:opacity-50"
-                        style={{ borderColor: "var(--accent-strong)", color: "var(--accent-strong)" }}>
-                        {pushing === t.id ? "กำลังส่ง…" : "ส่งเข้า Notion"}
-                      </button>
-                      {pushError?.id === t.id && (
-                        <span className="text-xs font-semibold" style={{ color: "var(--danger)" }} role="alert">ส่งเข้า Notion ไม่สำเร็จ · {pushError.reason}</span>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm" style={{ color: "var(--text-secondary)" }}>ยังไม่ได้ส่งเข้า Notion</p>
+                  ) : !t.cancelled && (
+                    <p className="text-sm" style={{ color: "var(--text-secondary)" }}>ยังไม่ได้ส่งเข้า Notion · ใช้ปุ่มด้านบนเพื่อส่ง แก้ไข หรือลบรีเควส</p>
                   )}
                 </Group>
 
                 <div className="border-t pt-4 flex flex-col gap-2 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}>
                   <p className="num">ส่งรีเควสเมื่อ {new Date(t.createdAt).toLocaleString("th-TH")}{t.creatorEmail ? ` · ${t.creatorEmail}` : ""}</p>
-                  <p className="inline-flex items-start gap-1.5">
-                    <span className="mt-0.5 shrink-0"><Icon name="info" size={14} /></span>
-                    <span>ต้องการยกเลิกหรือแก้ไขงานนี้ กรุณาติดต่อ <b>Lead Team Multimedia</b></span>
-                  </p>
+                  {t.notionUrl && !t.cancelled && (
+                    <p className="inline-flex items-start gap-1.5">
+                      <span className="mt-0.5 shrink-0"><Icon name="info" size={14} /></span>
+                      <span>งานนี้เข้า Notion แล้ว · ต้องการยกเลิกหรือแก้ไข กรุณาติดต่อ <b>Lead Team Multimedia</b></span>
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -268,7 +308,7 @@ function MyTasks() {
             งานของ<span style={{ color: "var(--accent)" }}>ฉัน</span>
           </h1>
           <p className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>
-            งานทั้งหมดที่คุณส่งรีเควส แยกตามเดือนที่ใช้เครดิต ใหม่อยู่บน · ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้ (ยังไม่แชร์ข้ามเครื่อง)
+            งานทั้งหมดที่คุณส่งรีเควส แยกตามเดือนที่ใช้เครดิต ใหม่อยู่บน · งานที่ยกเลิกอยู่ท้ายเดือน
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
@@ -305,7 +345,7 @@ function MyTasks() {
                   <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--border)" }}>
                     <h2 className="text-xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
                       {THAI_MONTHS_SHORT[g.month - 1]} <span className="num" style={{ color: "var(--accent-strong)" }}>{g.year + 543}</span>
-                      <span className="ml-2 text-sm font-normal" style={{ color: "var(--text-secondary)" }}>{g.tasks.length} งาน</span>
+                      <span className="ml-2 text-sm font-normal" style={{ color: "var(--text-secondary)" }}>{g.tasks.filter((t) => !t.cancelled).length} งาน</span>
                     </h2>
                     <div className="flex flex-wrap gap-2">
                       {g.byTeam.map((b) => (
@@ -317,9 +357,27 @@ function MyTasks() {
                       ))}
                     </div>
                   </div>
-                  <ul className="flex flex-col gap-3">
-                    {g.tasks.map((t) => renderTask(t))}
-                  </ul>
+                  {(() => {
+                    const active = g.tasks.filter((t) => !t.cancelled);
+                    const cancelled = g.tasks.filter((t) => t.cancelled);
+                    return (
+                      <>
+                        {active.length > 0 && (
+                          <ul className="flex flex-col gap-3">{active.map((t) => renderTask(t))}</ul>
+                        )}
+                        {cancelled.length > 0 && (
+                          <div className={active.length > 0 ? "mt-6" : ""}>
+                            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
+                              <span className="h-2 w-2 rounded-full" style={{ background: "var(--danger)" }} aria-hidden />
+                              ยกเลิก <span className="num font-normal">({cancelled.length})</span>
+                              <span className="font-normal">· คืนเครดิตแล้ว</span>
+                            </h3>
+                            <ul className="flex flex-col gap-3">{cancelled.map((t) => renderTask(t))}</ul>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </section>
               ))}
             </div>
