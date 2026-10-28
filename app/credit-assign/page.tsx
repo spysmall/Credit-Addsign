@@ -252,7 +252,7 @@ const CMP = "minmax(0,1fr) 76px 76px 84px";
           {/* ── Left: allocation ── */}
           <section className="surface flex flex-col overflow-hidden lg:min-h-0" aria-label="สัดส่วนเครดิต">
             {/* total + share bar */}
-            <div className="px-5 py-3.5 border-b" style={{ borderColor: "var(--border)" }}>
+            <div className="px-6 py-4 border-b" style={{ borderColor: "var(--border)" }}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs" style={{ color: "var(--text-secondary)" }}>เครดิตรวมทั้งทีม (หักวันลาแล้ว)</p>
@@ -279,7 +279,7 @@ const CMP = "minmax(0,1fr) 76px 76px 84px";
 
             {/* companies and their teams as one table */}
             <div className="lg:flex-1 lg:min-h-0 lg:overflow-auto">
-                  <div className="sticky top-0 z-10 grid items-center px-5 h-8 text-xs border-b" style={{ gridTemplateColumns: DIST, borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-card)" }}>
+                  <div className="sticky top-0 z-10 grid items-center px-6 h-10 text-[14px] border-b" style={{ gridTemplateColumns: DIST, borderColor: "var(--border)", color: "var(--text-secondary)", background: "var(--bg-card)" }}>
                     <span className="flex items-center gap-3">บริษัท / ทีม
                       {zeroCount > 0 && (
                         <button type="button" onClick={() => setShowZero((v) => !v)} aria-pressed={showZero}
@@ -293,23 +293,23 @@ const CMP = "minmax(0,1fr) 76px 76px 84px";
                     const coins = (pct / 100) * totalCredits;
                     return (
                       <div key={company.id} className="border-b" style={{ borderColor: "var(--border)" }}>
-                        <div className="grid items-center px-5 h-[30px]" style={{ gridTemplateColumns: DIST, background: "var(--bg-page)" }}>
-                          <span className="flex items-center gap-2 min-w-0">
+                        <div className="grid items-center px-6 h-11" style={{ gridTemplateColumns: DIST, background: "var(--bg-page)" }}>
+                          <span className="flex items-center gap-3 min-w-0">
                             <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: pct > 0 ? color : "var(--border)" }} aria-hidden />
-                            <span className="truncate text-sm font-bold" style={{ color: "var(--text-primary)" }} title={company.name}>{company.name}</span>
-                            <span className="shrink-0 text-xs font-normal" style={{ color: "var(--text-muted)" }}>{priority.name.replace("Priority : ", "")}</span>
+                            <span className="truncate text-[16px] font-bold" style={{ color: "var(--text-primary)" }} title={company.name}>{company.name}</span>
+                            <span className="shrink-0 text-[14px] font-normal" style={{ color: "var(--text-muted)" }}>{priority.name.replace("Priority : ", "")}</span>
                           </span>
-                          <span className="num text-right text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{pct.toFixed(1)}%</span>
-                          <span className="num text-right text-sm font-bold" style={{ color: coins > 0 ? "var(--accent-strong)" : "var(--text-muted)" }}>{coins > 0 ? fmt2(coins) : "—"}</span>
+                          <span className="num text-right text-[16px] font-semibold" style={{ color: "var(--text-primary)" }}>{pct.toFixed(1)}%</span>
+                          <span className="num text-right text-[16px] font-semibold" style={{ color: coins > 0 ? "var(--text-primary)" : "var(--text-muted)" }}>{coins > 0 ? fmt2(coins) : "—"}</span>
                         </div>
                         {company.teams.filter((t) => showZero || t.pct > 0).map((team) => {
                           const tc = (team.pct / 100) * totalCredits;
                           const isEditing = editingId === team.id;
                           const off = team.pct <= 0;
                           return (
-                            <div key={team.id} className="grid items-center px-5 h-[26px] [@media(min-height:860px)]:h-7 text-sm border-t transition-colors hover:bg-[var(--accent-light)]"
+                            <div key={team.id} className="grid items-center px-6 h-8 [@media(min-height:860px)]:h-10 text-[16px] border-t transition-colors hover:bg-[var(--accent-light)]"
                               style={{ gridTemplateColumns: DIST, borderColor: "var(--border)" }}>
-                              <span className="truncate pl-[18px]" style={{ color: off ? "var(--text-muted)" : "var(--text-secondary)" }} title={team.name}>{team.name}</span>
+                              <span className="truncate pl-[22px]" style={{ color: off ? "var(--text-muted)" : "var(--text-secondary)" }} title={team.name}>{team.name}</span>
                               <span className="flex justify-end">
                                 {isEditing ? (
                                   <input
@@ -323,7 +323,7 @@ const CMP = "minmax(0,1fr) 76px 76px 84px";
                                       if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); commitEdit(team.id); }
                                       if (e.key === "Escape") setEditingId(null);
                                     }}
-                                    className="num w-16 text-right text-sm rounded-md border px-1.5 outline-none"
+                                    className="num w-16 text-right text-[16px] rounded-md border px-1.5 outline-none"
                                     style={{ borderColor: "var(--accent)", color: "var(--text-primary)", background: "var(--bg-card)" }}
                                   />
                                 ) : (
@@ -334,7 +334,7 @@ const CMP = "minmax(0,1fr) 76px 76px 84px";
                                   </button>
                                 )}
                               </span>
-                              <span className="num text-right" style={{ color: off ? "var(--text-muted)" : "var(--text-primary)" }}>{off ? "—" : fmt2(tc)}</span>
+                              <span className="num text-right font-semibold" style={{ color: off ? "var(--text-muted)" : "var(--accent-strong)" }}>{off ? "—" : fmt2(tc)}</span>
                             </div>
                           );
                         })}
@@ -347,8 +347,8 @@ const CMP = "minmax(0,1fr) 76px 76px 84px";
           {/* ── Right: last month + notes ── */}
           <div className="flex flex-col gap-4 lg:min-h-0">
             <section className="surface overflow-hidden shrink-0" aria-label="เทียบกับเดือนก่อน">
-              <div className="grid items-end px-4 pt-3 pb-2 border-b text-xs" style={{ gridTemplateColumns: CMP, borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-                <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>เทียบเดือนก่อน</span>
+              <div className="grid items-end px-4 pt-3 pb-2 border-b text-[14px]" style={{ gridTemplateColumns: CMP, borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+                <span className="text-[16px] font-bold" style={{ color: "var(--text-primary)" }}>เทียบเดือนก่อน</span>
                 <span className="text-right">{THAI_MONTHS_SHORT[pm - 1]} ได้</span>
                 <span className="text-right">ใช้จริง</span>
                 <span className="text-right font-semibold" style={{ color: "var(--accent-strong)" }}>{THAI_MONTHS_SHORT[month - 1]} ใหม่</span>
@@ -360,23 +360,23 @@ const CMP = "minmax(0,1fr) 76px 76px 84px";
                   const newC  = currentAlloc[group] ?? 0;
                   const over  = used !== null && prevA > 0 && used > prevA;
                   return (
-                    <li key={group} className="grid items-center px-4 h-[30px] text-xs"
+                    <li key={group} className="grid items-center px-4 h-[32px] text-[14px]"
                       style={{ gridTemplateColumns: CMP, borderTop: gi > 0 ? "1px solid var(--border)" : undefined }}>
                       <span className="truncate" style={{ color: "var(--text-primary)" }} title={group}>{group}</span>
                       <span className="num text-right" style={{ color: "var(--text-secondary)" }}>{prevA > 0 ? prevA.toFixed(2) : "—"}</span>
                       <span className="num text-right" style={{ color: prevLoading || used === null ? "var(--text-muted)" : over ? "var(--danger)" : "var(--text-primary)", fontWeight: over ? 600 : undefined }}>
                         {prevLoading ? "…" : used !== null ? used.toFixed(2) : "—"}
                       </span>
-                      <span className="num text-right text-sm font-bold" style={{ color: newC > 0 ? "var(--accent-strong)" : "var(--text-muted)" }}>{newC > 0 ? newC.toFixed(2) : "—"}</span>
+                      <span className="num text-right text-[16px] font-bold" style={{ color: newC > 0 ? "var(--accent-strong)" : "var(--text-muted)" }}>{newC > 0 ? newC.toFixed(2) : "—"}</span>
                     </li>
                   );
                 })}
               </ul>
-              <div className="grid items-center px-4 h-9 text-xs text-white" style={{ gridTemplateColumns: CMP, background: "var(--bg-dark)" }}>
+              <div className="grid items-center px-4 h-9 text-[14px] text-white" style={{ gridTemplateColumns: CMP, background: "var(--bg-dark)" }}>
                 <span className="font-semibold">รวม</span>
                 <span className="num text-right" style={{ color: "rgba(255,255,255,0.7)" }}>{fmt2(prevTotalCredits)}</span>
                 <span className="num text-right">{prevLoading ? "…" : prevUsedTotal ? fmt2(prevUsedTotal) : "—"}</span>
-                <span className="num text-right text-sm font-bold" style={{ color: "#FFB599" }}>{fmt2(totalCredits)}</span>
+                <span className="num text-right text-[16px] font-bold" style={{ color: "#FFB599" }}>{fmt2(totalCredits)}</span>
               </div>
             </section>
 
@@ -396,7 +396,7 @@ const CMP = "minmax(0,1fr) 76px 76px 84px";
                 readOnly={isPastMonth}
                 aria-label="โน้ต / หมายเหตุ"
                 placeholder={isPastMonth ? "ไม่มีโน้ตบันทึกไว้สำหรับเดือนนี้" : "พิมพ์หรือวางโน้ตเพิ่มเติมสำหรับเดือนนี้…"}
-                className="flex-1 w-full min-h-[100px] resize-none px-4 py-3 text-xs leading-relaxed outline-none"
+                className="flex-1 w-full min-h-[100px] resize-none px-4 py-3 text-[15px] leading-relaxed outline-none"
                 style={{ background: isPastMonth ? "var(--bg-page)" : "var(--bg-card)", color: isPastMonth ? "var(--text-secondary)" : "var(--text-primary)", fontFamily: "inherit" }}
               />
             </section>
