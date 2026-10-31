@@ -17,6 +17,7 @@
  *   → { id, url }
  *
  *   GET  /tasks/status?ids=<pageId>,<pageId>   (read-only)
+ *   GET  /designers/load                       (read-only: open tasks + latest due date per Assignee)
  *   → { results: { [pageId]: { status, inTrash, notFound? } } }
  */
 import http from "node:http";
@@ -72,6 +73,9 @@ async function allowedOptions() {
   schemaCache = { at: Date.now(), options };
   return options;
 }
+
+/** Status values that still sit in a designer's queue */
+const OPEN_STATUSES = ["Not Started", "Open", "In Progress"];
 
 let usersCache = { at: 0, byEmail: new Map() };
 async function notionUserId(email) {
@@ -134,6 +138,9 @@ async function buildProperties(t, { test }) {
 
   const uid = await notionUserId(str(t.createdByEmail, 200) || str(t.creatorEmail, 200));
   if (uid) props["Created by"] = { people: [{ id: uid }] };
+  // ผู้รับผิดชอบ (Multimedia designer): by e-mail, else the id from the member list
+  const aid = (await notionUserId(str(t.assigneeEmail, 200))) || (/^[0-9a-f-]{32,36}$/i.test(str(t.assigneeNotionId, 40)) ? t.assigneeNotionId : null);
+  if (aid) props.Assignee = { people: [{ id: aid }] };
   return { props, matchedUser: !!uid };
 }
 
@@ -174,6 +181,28 @@ const server = http.createServer(async (req, res) => {
         results[id] = err.status === 404 ? { status: null, inTrash: false, notFound: true } : { status: null, inTrash: false, error: err.message };
       }
     }));
+    return send(res, 200, { results }, allowed);
+  }
+  if (req.method === "GET" && url.pathname === "/designers/load") {
+    // read-only: each Notion person's queue — unfinished tasks they are Assignee of, and the latest due date among them
+    const results = {};
+    let cursor;
+    do {
+      const r = await notion("POST", `/databases/${DB}/query`, {
+        page_size: 100, ...(cursor ? { start_cursor: cursor } : {}),
+        filter: { or: OPEN_STATUSES.map((s) => ({ property: "Status", status: { equals: s } })) },
+      });
+      for (const p of r.results) {
+        const d = p.properties?.["Due (กำหนดส่งงาน)"]?.date;
+        const due = d ? (d.end ?? d.start).slice(0, 10) : null;
+        for (const u of p.properties?.Assignee?.people ?? []) {
+          const q = (results[u.id] ??= { open: 0, lastDue: null });
+          q.open++;
+          if (due && (!q.lastDue || due > q.lastDue)) q.lastDue = due;
+        }
+      }
+      cursor = r.has_more ? r.next_cursor : undefined;
+    } while (cursor);
     return send(res, 200, { results }, allowed);
   }
   if (req.method !== "POST" || url.pathname !== "/tasks") return send(res, 404, { error: "not found" }, allowed);

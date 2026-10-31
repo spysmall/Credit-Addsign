@@ -36,6 +36,20 @@ export async function pushTaskToNotion(task: AssignedTask): Promise<{ id: string
   return { id: json.id, url: json.url };
 }
 
+/** A designer's queue: unfinished tasks they are Assignee of (Not Started / Open / In Progress) */
+export interface DesignerQueue { open: number; lastDue: string | null }
+
+/** Notion user id → their queue */
+export async function fetchDesignerLoad(): Promise<Record<string, DesignerQueue>> {
+  if (!NOTION_ENABLED) return {};
+  const res = NOTION_BRIDGE_URL
+    ? await fetch(`${NOTION_BRIDGE_URL}/designers/load`)
+    : await fetch(`${SCRIPT_URL}?action=designerLoad`);
+  const json = (await res.json().catch(() => ({}))) as { results?: Record<string, DesignerQueue>; error?: string };
+  if (!res.ok || !json.results) throw new Error(json.error ?? `load ${res.status}`);
+  return json.results;
+}
+
 export interface NotionTaskState {
   status: string | null; // value of the "Status" property
   inTrash: boolean;      // page was deleted (moved to trash) in Notion

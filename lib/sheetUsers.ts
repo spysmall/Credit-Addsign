@@ -224,3 +224,28 @@ export function briefTeamsFor(discord: Map<string, string[]>, email: string): st
   const fromDiscord = discord.get(e) ?? [];
   return fromDiscord.length ? fromDiscord : EMAIL_DOMAIN_TEAMS[e.split("@")[1] ?? ""] ?? [];
 }
+
+export interface Designer { email: string; name: string; notionId?: string }
+
+/** Notion name groups of the Multimedia design team ("DS M : Boss", "DS : Romram") */
+const MULTIMEDIA_GROUPS = new Set(["DS M", "DS"]);
+
+/** Multimedia designers who can be made responsible (Notion "Assignee") for a request */
+export async function fetchMultimediaDesigners(): Promise<Designer[]> {
+  const url = `https://docs.google.com/spreadsheets/d/${USERS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${MEMBERS_GID}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`members sheet ${res.status}`);
+  const [h, ...rows] = parseCSV(await res.text());
+  if (!h) return [];
+  const col = (re: RegExp) => h.findIndex((x) => re.test(x.trim()));
+  const nameIdx = col(/^ชื่อ$/), groupIdx = col(/^กลุ่ม/), emailIdx = col(/^(อีเมล|email)/i), idIdx = col(/^notion user id$/i);
+  if (nameIdx < 0 || groupIdx < 0 || emailIdx < 0) return [];
+  const out: Designer[] = [];
+  for (const r of rows) {
+    const email = (r[emailIdx] ?? "").trim().toLowerCase();
+    if (!email.includes("@") || !MULTIMEDIA_GROUPS.has((r[groupIdx] ?? "").trim().toUpperCase())) continue;
+    const notionId = idIdx >= 0 ? (r[idIdx] ?? "").trim() : "";
+    out.push({ email, name: teamName(r[nameIdx] ?? "") || (r[nameIdx] ?? "").trim(), notionId: notionId || undefined });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}

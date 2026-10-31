@@ -5,9 +5,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import PriceCombobox from "@/components/PriceCombobox";
 import PersonCombobox, { Person } from "@/components/PersonCombobox";
 import AssignGate, { useAssignUser } from "@/components/AssignGate";
-import { NOTION_ENABLED, pushTaskToNotion } from "@/lib/notionBridge";
+import { DesignerQueue, NOTION_ENABLED, fetchDesignerLoad, pushTaskToNotion } from "@/lib/notionBridge";
+import { getHolidaysForMonth } from "@/lib/holidays";
 import { getSavedTeam, saveTeam } from "@/lib/assignSession";
-import { briefTeamsFor, fetchDiscordTeams } from "@/lib/sheetUsers";
+import { Designer, briefTeamsFor, fetchDiscordTeams, fetchMultimediaDesigners } from "@/lib/sheetUsers";
 import { loadDistConfig, DistConfig } from "@/lib/distribution";
 import { fetchDistFromSheet } from "@/lib/sheetDistribution";
 import { fetchAllTaskUsage, fetchTeamActivity, TeamUsage } from "@/lib/sheetTasks";
@@ -24,6 +25,27 @@ import {
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const MAX_FILES = 20;
 /** Urgent = a "ตั๋วทอง" queue jump: its reason is added to the end of the objective sent to Notion */
+const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const isWorkday = (d: Date) =>
+  d.getDay() !== 0 && d.getDay() !== 6 && !getHolidaysForMonth(d.getFullYear(), d.getMonth() + 1).some((h) => h.date === iso(d));
+
+/**
+ * Earliest working day a designer can start new work: the working day after the latest due date
+ * of their unfinished tasks, or today (next working day) when that is already past or unknown.
+ */
+function earliestStart(q: DesignerQueue | undefined, today: Date): Date {
+  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (q?.lastDue) {
+    const [y, m, day] = q.lastDue.split("-").map(Number);
+    const after = new Date(y, m - 1, day + 1);
+    if (after > d) d.setTime(after.getTime());
+  }
+  while (!isWorkday(d)) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+/** designers still in the list (and in old requests) but not shown as choices: DS : Romram, DS M : Pe Phas */
+const HIDDEN_ASSIGNEES = new Set(["pattrawutthippapart@gmail.com", "phassarasi@gmail.com"]);
 const urgentLine = (reason: string) => `⚡ งานด่วน (ตั๋วทอง) · เหตุผลที่แทรกงาน: ${reason}`;
 const MAX_BYTES = 100 * 1024 * 1024;
 
@@ -95,6 +117,25 @@ function NewTaskForm() {
   const [projects, setProjects]     = useState<string[]>([]);
   const [createdBy, setCreatedBy]   = useState<Person | null>(me); // always the signed-in person (an edit keeps the original)
   const [owner, setOwner]           = useState<Person | null>(me);
+  const [assignee, setAssignee]     = useState<Designer | null>(null);
+  const [designers, setDesigners]   = useState<Designer[] | null>(null); // null = loading
+  // open Notion tasks per designer (by Notion user id); null = not known (then the list stays by name)
+  const [load, setLoad] = useState<Record<string, DesignerQueue> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchMultimediaDesigners().then((d) => { if (alive) setDesigners(d); }).catch(() => { if (alive) setDesigners([]); });
+    fetchDesignerLoad().then((l) => { if (alive) setLoad(l); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  // earliest start per designer (null = queue unknown); fewer open tasks breaks a tie
+  const queueOf = (d: Designer) => (load && d.notionId ? load[d.notionId] : undefined);
+  const startOf = (d: Designer) => (load && d.notionId ? earliestStart(load[d.notionId], new Date()) : null);
+  const designerChoices = useMemo(() => {
+    const shown = (designers ?? []).filter((d) => !HIDDEN_ASSIGNEES.has(d.email) || d.email === assignee?.email);
+    // whoever can start soonest is on top
+    const key = (d: Designer) => startOf(d)?.getTime() ?? Infinity;
+    return load ? [...shown].sort((a, b) => key(a) - key(b) || (queueOf(a)?.open ?? 0) - (queueOf(b)?.open ?? 0)) : shown;
+  }, [designers, load, assignee?.email]); // eslint-disable-line react-hooks/exhaustive-deps
   const ownerPeople = useMemo(() => ownerOrder(people, me), [people, me.email, me.name, tasksVersion]); // eslint-disable-line react-hooks/exhaustive-deps
   const [teamCreator, setTeamCreator] = useState(defaultTeam);
   // teams this person may create briefs for: the users sheet's "ทีม" column wins, else their Discord roles.
@@ -336,7 +377,7 @@ function NewTaskForm() {
   function resetForm() {
     setTitle(""); setPriority("Normal"); setProjects([]); setOwner(me); setTeamCreator(noTeam ? "" : startTeam(user.email, myTeams)); setCompany("");
     setLines([{ id: nextLineId.current++, code: "", requestType: "new", qty: 1 }]);
-    setTypesExtra([]); setTypesOff([]); setSummaryDraft(""); setSummaryEdited(false); setLink(""); setObjective(""); setUrgentReason("");
+    setTypesExtra([]); setTypesOff([]); setSummaryDraft(""); setSummaryEdited(false); setLink(""); setObjective(""); setUrgentReason(""); setAssignee(null);
     setNeedBy(""); setUseDate(""); setFiles([]); setTried(false); setStep(1);
   }
 
@@ -362,6 +403,7 @@ function NewTaskForm() {
     // the urgent line was appended on save; edit the objective without it
     const tail = t.urgentReason ? `\n\n${urgentLine(t.urgentReason)}` : "";
     setUrgentReason(t.urgentReason ?? "");
+    setAssignee(t.assigneeEmail ? { email: t.assigneeEmail, name: t.assigneeName ?? t.assigneeEmail, notionId: t.assigneeNotionId } : null);
     setLink(t.link); setObjective(tail && t.objective.endsWith(tail) ? t.objective.slice(0, -tail.length) : t.objective); setNeedBy(t.needBy); setUseDate(t.useDate); setFiles(t.refFiles);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -392,6 +434,7 @@ function NewTaskForm() {
       owner: owner!.name.includes(" : ") ? owner!.name : `${teamDisplay(teamCreator)} : ${owner!.name}`, ownerEmail: owner!.email,
       refFiles: files, link: link.trim(), objective: urgent ? `${objective.trim()}\n\n${urgentLine(urgentReason.trim())}` : objective.trim(),
       urgentReason: urgent ? urgentReason.trim() : undefined, summary: summary.trim(),
+      assigneeEmail: assignee?.email, assigneeName: assignee?.name, assigneeNotionId: assignee?.notionId,
       workTypes, useCredit, needBy, useDate, teamCreator, company,
       lines: lines.map((l, i) => {
         const item = priceByCode.get(l.code)!;
@@ -559,6 +602,33 @@ function NewTaskForm() {
                     placeholder="พิมพ์ค้นหาชื่อ" inputClassName={inputCls} inputStyle={inputStyle} />
                 </Field>
               </div>
+              <Field label="ผู้รับผิดชอบงาน (ทีมดีไซน์ Multimedia)" hint={load ? "ไม่บังคับ · เรียงจากคนที่เริ่มงานได้เร็วสุด กดซ้ำเพื่อยกเลิก" : "ไม่บังคับ · เลือกดีไซเนอร์ที่จะทำงานนี้ กดซ้ำเพื่อยกเลิก"}>
+                {!designers || designers.length === 0 ? (
+                  <p className="text-sm" style={{ color: "var(--text-muted)" }}>{designers ? "โหลดรายชื่อทีมดีไซน์ไม่ได้ · ข้ามช่องนี้ได้" : "กำลังโหลดรายชื่อทีมดีไซน์…"}</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 auto-rows-fr gap-2" role="radiogroup">
+                    {designerChoices.map((d, i) => {
+                      const on = assignee?.email === d.email;
+                      const start = startOf(d);
+                      const quickest = i === 0 && start !== null;
+                      return (
+                        <button key={d.email} type="button" role="radio" aria-checked={on}
+                          onClick={() => setAssignee((cur) => (cur?.email === d.email ? null : d))}
+                          className={`${on ? "chip-on" : "hover:border-[var(--text-muted)]"} relative rounded-xl border px-2 min-h-12 flex flex-col items-center justify-center text-center leading-tight transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]`}
+                          style={on
+                            ? { background: "var(--accent-strong)", borderColor: "var(--accent-strong)", color: "#fff" }
+                            : { background: "var(--bg-card)", borderColor: quickest ? "var(--success)" : "var(--border)", color: "var(--text-secondary)" }}>
+                          {quickest && (
+                            <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-2 py-px text-[11px] font-bold text-white"
+                              style={{ background: "var(--success)" }}>⚡ คิวไวสุด</span>
+                          )}
+                          <span className="text-[13px] font-semibold">{d.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </Field>
             </Section>}
 
             {step === 2 && <Section step="2" title="รายละเอียดงาน">

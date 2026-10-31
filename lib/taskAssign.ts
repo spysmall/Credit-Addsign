@@ -101,6 +101,9 @@ export interface AssignedTask {
   link: string;           // Link ไฟล์งาน&ความต้องการ
   objective: string;      // includes the urgent-reason line at the end when priority is Urgent
   urgentReason?: string;  // Urgent ("ตั๋วทอง" queue jump): why this piece must jump the queue
+  assigneeEmail?: string;    // ผู้รับผิดชอบ: a Multimedia designer (Notion "Assignee")
+  assigneeName?: string;
+  assigneeNotionId?: string; // their Notion user id from the member list (used when the e-mail lookup misses)
   summary: string;        // สรุปจำนวนชิ้นงาน
   workTypes: string[];    // ประเภทของงาน
   useCredit: number;

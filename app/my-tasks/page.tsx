@@ -159,6 +159,7 @@ function MyTasks() {
                     {t.ownerEmail && t.ownerEmail !== t.createdByEmail && <span>· แอดโดย {t.createdBy}</span>}
                     {showAll && t.creatorEmail ? ` · ${t.creatorEmail}` : ""}
                   </span>
+                  {t.assigneeName && <span className="inline-flex items-center gap-1.5"><Icon name="user" size={14} />ผู้รับผิดชอบ {t.assigneeName}</span>}
                 </p>
               </div>
               <div className="shrink-0 flex flex-col items-end gap-2">

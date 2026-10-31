@@ -92,6 +92,11 @@ function doGet(e) {
     catch (err) { return json_({ error: String(err.message || err) }); }
   }
 
+  if (action === "designerLoad") {
+    try { return json_({ results: designerLoad_() }); }
+    catch (err) { return json_({ error: String(err.message || err) }); }
+  }
+
   if (action === "getNote") {
     var ns   = getNoteSheet();
     var nd   = ns.getDataRange().getValues();
@@ -363,6 +368,9 @@ function notionTaskProps_(t) {
   };
   var uid = notionUserId_(str_(t.createdByEmail, 200) || str_(t.creatorEmail, 200));
   if (uid) props["Created by"] = { people: [{ id: uid }] };
+  // ผู้รับผิดชอบ (Multimedia designer): by e-mail, else the id from the member list
+  var aid = notionUserId_(str_(t.assigneeEmail, 200)) || (/^[0-9a-f-]{32,36}$/i.test(str_(t.assigneeNotionId, 40)) ? t.assigneeNotionId : null);
+  if (aid) props["Assignee"] = { people: [{ id: aid }] };
   return props;
 }
 
@@ -398,4 +406,30 @@ function notionStatuses_(ids) {
     }
   });
   return results;
+}
+
+// Each Notion Assignee's queue: unfinished tasks and the latest due date among them, cached 2 min
+function designerLoad_() {
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get("designer-load");
+  if (hit) return JSON.parse(hit);
+  var db = notionConf_().db, out = {}, cursor = null;
+  do {
+    var body = { page_size: 100, filter: { or: ["Not Started", "Open", "In Progress"].map(function (s) { return { property: "Status", status: { equals: s } }; }) } };
+    if (cursor) body.start_cursor = cursor;
+    var r = notion_("post", "/databases/" + db + "/query", body);
+    r.results.forEach(function (p) {
+      var people = (p.properties && p.properties.Assignee && p.properties.Assignee.people) || [];
+      var d = p.properties && p.properties["Due (กำหนดส่งงาน)"] && p.properties["Due (กำหนดส่งงาน)"].date;
+      var due = d ? String(d.end || d.start).slice(0, 10) : null;
+      people.forEach(function (u) {
+        var q = out[u.id] || (out[u.id] = { open: 0, lastDue: null });
+        q.open++;
+        if (due && (!q.lastDue || due > q.lastDue)) q.lastDue = due;
+      });
+    });
+    cursor = r.has_more ? r.next_cursor : null;
+  } while (cursor);
+  cache.put("designer-load", JSON.stringify(out), 120);
+  return out;
 }
