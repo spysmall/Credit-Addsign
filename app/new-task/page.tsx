@@ -71,7 +71,7 @@ function NewTaskForm() {
   const [title, setTitle]           = useState("");
   const [priority, setPriority]     = useState("Normal");
   const [projects, setProjects]     = useState<string[]>([]);
-  const [createdBy, setCreatedBy]   = useState<Person | null>(me);
+  const [createdBy, setCreatedBy]   = useState<Person | null>(me); // always the signed-in person (an edit keeps the original)
   const [owner, setOwner]           = useState<Person | null>(me);
   const [teamCreator, setTeamCreator] = useState(defaultTeam);
   // teams this person may create briefs for: the users sheet's "ทีม" column wins, else their Discord roles.
@@ -515,11 +515,15 @@ function NewTaskForm() {
                 </div>
               </Field>
               <div className="grid sm:grid-cols-2 gap-4">
-                <Field label="สร้างโดย" required error={show("createdBy")} hint="ดึงจากบัญชีที่ล็อกอิน · พิมพ์ชื่อเพื่อเปลี่ยนเป็นคนอื่น">
-                  <PersonCombobox people={people} value={createdBy} onChange={setCreatedBy} invalid={tried && !!errors.createdBy}
-                    placeholder="พิมพ์ค้นหาชื่อ" inputClassName={inputCls} inputStyle={inputStyle} />
+                <Field label="สร้างโดย" required error={show("createdBy")} hint="ตามบัญชีที่ล็อกอิน · เปลี่ยนไม่ได้">
+                  <div className="flex items-center gap-2 rounded-xl border px-4 py-3 text-base sm:text-sm"
+                    style={{ background: "var(--bg-page)", borderColor: "var(--border)", color: "var(--text-primary)" }}
+                    aria-label={`สร้างโดย ${createdBy?.name ?? ""} (ล็อกไว้)`}>
+                    <svg className="shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+                    <span className="truncate">{createdBy?.name}</span>
+                  </div>
                 </Field>
-                <Field label="เจ้าของงาน" required error={show("owner")} hint="คนที่ใช้งานชิ้นนี้ · งานจะขึ้นใน “งานของฉัน” ของเขาด้วย">
+                <Field label="เจ้าของงาน" required error={show("owner")} hint="สร้างแทนคนอื่นได้ · คลิกแล้วพิมพ์ชื่อเจ้าของงาน">
                   <PersonCombobox people={people} value={owner} onChange={setOwner} invalid={tried && !!errors.owner}
                     placeholder="พิมพ์ค้นหาชื่อ" inputClassName={inputCls} inputStyle={inputStyle} />
                 </Field>
