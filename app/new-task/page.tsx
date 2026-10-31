@@ -18,7 +18,7 @@ import {
 } from "@/lib/priceTable";
 import {
   AssignedTask, COMPANY_OPTIONS, PRIORITIES, PROJECTS, TEAM_OPTIONS, WORK_TYPES,
-  addAssigned, isMyTask, loadAssigned, newTaskId, projectDisplay, recentTeamCounts, resolveCard, updateAssigned, webCreditByCompany, teamAvailability, teamDisplay, teamGroup, webUsedForGroup,
+  addAssigned, assignedMonths, isMyTask, loadAssigned, newTaskId, projectDisplay, recentTeamCounts, resolveCard, updateAssigned, webCreditByCompany, teamAvailability, teamDisplay, teamGroup, webUsedForGroup,
 } from "@/lib/taskAssign";
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
@@ -36,6 +36,26 @@ const isoToday = () => {
 const inputCls = "w-full rounded-xl border px-4 py-3 text-base sm:text-sm outline-none transition-all focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--accent-light)]";
 const inputStyle = { background: "var(--bg-card)", borderColor: "var(--border)", color: "var(--text-primary)" } as const;
 
+/**
+ * Owner picker order: me, then the people I pick as owner most often, then my own team
+ * (same "ทีม : " prefix), then everyone else by name.
+ */
+function ownerOrder(people: Person[], me: Person): Person[] {
+  const picks = new Map<string, number>();
+  for (const { year, month } of assignedMonths()) {
+    for (const t of loadAssigned(year, month)) {
+      if (t.deletedAt || t.createdByEmail !== me.email || !t.ownerEmail || t.ownerEmail === me.email) continue;
+      picks.set(t.ownerEmail, (picks.get(t.ownerEmail) ?? 0) + 1);
+    }
+  }
+  // team word of a "ทีม : ชื่อ" name: "DS M : Boss" → "DS"
+  const teamOf = (name: string) => (name.includes(" : ") ? name.split(" : ")[0].split(/[\s([]/)[0].toUpperCase() : null);
+  const myTeam = teamOf(me.name);
+  const rank = (p: Person) =>
+    p.email === me.email ? 3 : picks.has(p.email) ? 2 : myTeam && teamOf(p.name) === myTeam ? 1 : 0;
+  return [...people].sort((a, b) => rank(b) - rank(a) || (picks.get(b.email) ?? 0) - (picks.get(a.email) ?? 0));
+}
+
 /** team to start a new request with: the remembered one if still allowed, else the only one they have */
 function startTeam(email: string, teams: string[]) {
   const saved = getSavedTeam(email);
@@ -44,7 +64,7 @@ function startTeam(email: string, teams: string[]) {
 }
 
 function NewTaskForm() {
-  const { user, sheetTeam, sheetName, people, isSuperAdmin } = useAssignUser();
+  const { user, sheetTeam, sheetName, people, isSuperAdmin, tasksVersion } = useAssignUser();
   const me: Person = { email: user.email, name: sheetName ?? user.name };
   const [recent] = useState(() => recentTeamCounts(30));
   const [frozenOrder, setFrozenOrder] = useState<string[] | null>(null);
@@ -73,6 +93,7 @@ function NewTaskForm() {
   const [projects, setProjects]     = useState<string[]>([]);
   const [createdBy, setCreatedBy]   = useState<Person | null>(me); // always the signed-in person (an edit keeps the original)
   const [owner, setOwner]           = useState<Person | null>(me);
+  const ownerPeople = useMemo(() => ownerOrder(people, me), [people, me.email, me.name, tasksVersion]); // eslint-disable-line react-hooks/exhaustive-deps
   const [teamCreator, setTeamCreator] = useState(defaultTeam);
   // teams this person may create briefs for: the users sheet's "ทีม" column wins, else their Discord roles.
   // [] = unknown → they cannot create briefs until the design team adds them. Super admins are never limited.
@@ -525,7 +546,7 @@ function NewTaskForm() {
                   </div>
                 </Field>
                 <Field label="เจ้าของงาน" required error={show("owner")} hint="สร้างแทนคนอื่นได้ · คลิกแล้วพิมพ์ชื่อเจ้าของงาน">
-                  <PersonCombobox people={people} value={owner} onChange={setOwner} invalid={tried && !!errors.owner}
+                  <PersonCombobox people={ownerPeople} value={owner} onChange={setOwner} invalid={tried && !!errors.owner}
                     placeholder="พิมพ์ค้นหาชื่อ" inputClassName={inputCls} inputStyle={inputStyle} />
                 </Field>
               </div>

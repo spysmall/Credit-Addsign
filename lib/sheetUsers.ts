@@ -92,7 +92,8 @@ async function withTeamNames(users: Map<string, AllowedUser>): Promise<Map<strin
   for (const [email, u] of users) {
     const own = u.team ? [u.team] : briefTeamsFor(teams, email);
     const prefix = own.length ? NAME_PREFIX[own[0]] : undefined;
-    const name = fromNotion.get(email) ?? fromDiscord.get(email) ?? (prefix && u.name ? `${prefix} : ${u.name}` : u.name);
+    const name = fromNotion.get(email) ?? fromDiscord.get(email) ?? (teamName(u.name ?? "")
+      || (prefix && u.name ? `${prefix} : ${u.name}` : u.name));
     users.set(email, { ...u, name });
   }
   return users;
