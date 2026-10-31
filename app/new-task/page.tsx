@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import PriceCombobox from "@/components/PriceCombobox";
 import PersonCombobox, { Person } from "@/components/PersonCombobox";
-import AssignGate, { useAssignUser } from "@/components/AssignGate";
+import AssignGate, { AssignTabs, useAssignUser } from "@/components/AssignGate";
 import { DesignerQueue, NOTION_ENABLED, fetchDesignerLoad, pushTaskToNotion } from "@/lib/notionBridge";
 import { getHolidaysForMonth } from "@/lib/holidays";
 import { getSavedTeam, saveTeam } from "@/lib/assignSession";
@@ -471,7 +471,8 @@ function NewTaskForm() {
   return (
     <div>
 
-        <div className="mb-6">
+        <div className="mb-6 flex flex-col-reverse items-start gap-4 sm:flex-row sm:justify-between">
+          <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] mb-1" style={{ color: "var(--text-secondary)" }}>Assign Task</p>
           <h1 className="text-3xl sm:text-4xl font-bold leading-tight tracking-tight" style={{ color: "var(--text-primary)" }}>
             {editing ? "แก้ไขรีเควส" : "ส่งรีเควสงาน"} <span className="num" style={{ color: "var(--accent-strong)" }}>{THAI_MONTHS_SHORT[month - 1]} {year + 543}</span>
@@ -479,6 +480,8 @@ function NewTaskForm() {
           <p className="text-sm mt-2 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
             ระบบคำนวณเครดิตจากตารางราคาและหักจากเครดิตของทีมทันที ถ้าเครดิตไม่พอจะส่งรีเควสไม่ได้
           </p>
+          </div>
+          <AssignTabs active="request" />
         </div>
 
         {editing && (

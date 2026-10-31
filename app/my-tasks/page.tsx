@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import AssignGate, { useAssignUser } from "@/components/AssignGate";
+import AssignGate, { AssignTabs, useAssignUser } from "@/components/AssignGate";
 import { REQUEST_TYPES } from "@/lib/priceTable";
 import { NOTION_ENABLED, fetchNotionStatuses, pushTaskToNotion } from "@/lib/notionBridge";
 import { AssignedTask, assignedMonths, isMyTask, loadAssigned, notionPageId, projectDisplay, teamDisplay, updateAssigned } from "@/lib/taskAssign";
@@ -302,7 +302,7 @@ function MyTasks() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
+      <div className="mb-6 flex flex-col-reverse items-start gap-4 sm:flex-row sm:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.15em] mb-2" style={{ color: "var(--accent)" }}>Assign Task · งานของฉัน</p>
           <h1 className="text-3xl sm:text-4xl font-black leading-none tracking-tight" style={{ color: "var(--text-primary)" }}>
@@ -312,7 +312,10 @@ function MyTasks() {
             งานทั้งหมดที่คุณส่งรีเควส แยกตามเดือนที่ใช้เครดิต ใหม่อยู่บน · งานที่ยกเลิกอยู่ท้ายเดือน
           </p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <AssignTabs active="mine" />
+      </div>
+      {(isSuperAdmin || NOTION_ENABLED) && (
+        <div className="-mt-2 mb-6 flex items-center gap-3 flex-wrap">
           {isSuperAdmin && (
             <label className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold cursor-pointer select-none"
               style={{ borderColor: showAll ? "var(--accent)" : "var(--border)", background: "var(--bg-card)", color: showAll ? "var(--accent)" : "var(--text-secondary)" }}>
@@ -330,7 +333,7 @@ function MyTasks() {
             </button>
           )}
         </div>
-      </div>
+      )}
 
       {(
         <>
