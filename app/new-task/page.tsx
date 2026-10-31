@@ -575,7 +575,8 @@ function NewTaskForm() {
                 </div>
               </Field>
               <Field label="ความเร่งด่วน" required>
-                <Chips options={[...PRIORITIES]} value={priority} onPick={setPriority} />
+                {/* "High" stays a valid priority (old requests, Notion) but is no longer offered — unless this request already has it */}
+                <Chips options={PRIORITIES.filter((p) => p !== "High" || priority === "High")} value={priority} onPick={setPriority} />
                 {urgent && (
                   <div className="mt-3 rounded-xl border px-4 py-3 flex gap-3 items-start" role="note"
                     style={{ background: "var(--warning-bg)", borderColor: "var(--warning-line)" }}>
