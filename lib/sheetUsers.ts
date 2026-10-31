@@ -89,3 +89,79 @@ export async function fetchMemberTeams(): Promise<Map<string, string[]>> {
   }
   return out;
 }
+
+// ── Teams from the "[New] User ID Discord - Out Team" tab (Discord roles) ──
+const DISCORD_GID = "1381351958";
+
+/** Discord "ทีม" role → "Task Team Creator" labels. Roles not listed here (ECB, BD, CS, …) say nothing. */
+const DISCORD_TEAMS: Record<string, string[]> = {
+  agenix: ["AGX-Biz", "AGX-GS"],
+  mkt: ["MKT-Performance"],
+  "mkt sea": ["MKT-Performance"],
+  seo: ["SEO"],
+  hof: ["HOF"],
+  "wang ruay": ["BD-WangRuay"],
+  designer: ["Design"],
+  "web dev": ["Dev"],
+  content: ["Content"],
+  "crit dmg": ["CDM"],
+  bd: ["BD-CB"],
+  "bd & commu": ["BD-CB"],
+};
+
+/** Prefix of the server name ("💜GP (Lead) : Jenny", "AGX : Ploy") → labels; used when the roles say nothing */
+const NAME_PREFIX_TEAMS: Record<string, string[]> = {
+  GP: ["GP", "Commu"], // GP and Commu share one credit pool
+  SR: ["GP", "Commu"],
+  PM: ["GP", "Commu"],
+  AGX: ["AGX-Biz", "AGX-GS"],
+  CDM: ["CDM"],
+  BD: ["BD-CB"],
+  BDSR: ["BD-CB"],
+  AE: ["BD-CB"],
+  MK: ["MKT-Performance"],
+  DS: ["Design"],
+  HOF: ["HOF"],
+};
+
+/** email (lower-case) → team labels this person may create briefs for ([] when it cannot be told) */
+export async function fetchDiscordTeams(): Promise<Map<string, string[]>> {
+  const url = `https://docs.google.com/spreadsheets/d/${USERS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${DISCORD_GID}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`discord sheet ${res.status}`);
+  const [headers, ...rows] = parseCSV(await res.text());
+  if (!headers) return new Map();
+
+  const col = (re: RegExp) => headers.findIndex((h) => re.test(h.trim()));
+  const emailIdx = col(/^(อีเมล|email)/i);
+  const teamIdx = col(/^(ทีม|team)$/i);
+  const serverIdx = col(/^ชื่อในเซิร์ฟเวอร์$/);
+  const displayIdx = col(/^ชื่อที่แสดง$/);
+  if (emailIdx < 0) return new Map();
+
+  const out = new Map<string, string[]>();
+  for (const r of rows) {
+    const email = (r[emailIdx] ?? "").trim().toLowerCase();
+    if (!email.includes("@")) continue;
+    let teams = (teamIdx >= 0 ? r[teamIdx] ?? "" : "").split(",").flatMap((t) => DISCORD_TEAMS[t.trim().toLowerCase()] ?? []);
+    if (teams.length === 0) {
+      const name = (serverIdx >= 0 && r[serverIdx]?.trim()) || (displayIdx >= 0 ? r[displayIdx] ?? "" : "");
+      const prefix = name.includes(":") ? name.split(":")[0].replace(/^[^A-Za-z]+/, "").split(/[^A-Za-z]/)[0].toUpperCase() : "";
+      teams = NAME_PREFIX_TEAMS[prefix] ?? [];
+    }
+    out.set(email, [...new Set([...(out.get(email) ?? []), ...teams])]);
+  }
+  return out;
+}
+
+/** Company e-mail domains that tell the team on their own (for people missing from the Discord tab) */
+const EMAIL_DOMAIN_TEAMS: Record<string, string[]> = {
+  "agenixteam.com": ["AGX-Biz", "AGX-GS"],
+};
+
+/** Teams of one person: their Discord entry, else their e-mail domain ([] when unknown) */
+export function briefTeamsFor(discord: Map<string, string[]>, email: string): string[] {
+  const e = email.trim().toLowerCase();
+  const fromDiscord = discord.get(e) ?? [];
+  return fromDiscord.length ? fromDiscord : EMAIL_DOMAIN_TEAMS[e.split("@")[1] ?? ""] ?? [];
+}

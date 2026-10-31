@@ -7,6 +7,7 @@ import PersonCombobox, { Person } from "@/components/PersonCombobox";
 import AssignGate, { useAssignUser } from "@/components/AssignGate";
 import { NOTION_ENABLED, pushTaskToNotion } from "@/lib/notionBridge";
 import { getSavedTeam, saveTeam } from "@/lib/assignSession";
+import { briefTeamsFor, fetchDiscordTeams } from "@/lib/sheetUsers";
 import { loadDistConfig, DistConfig } from "@/lib/distribution";
 import { fetchDistFromSheet } from "@/lib/sheetDistribution";
 import { fetchAllTaskUsage, fetchTeamActivity, TeamUsage } from "@/lib/sheetTasks";
@@ -35,8 +36,15 @@ const isoToday = () => {
 const inputCls = "w-full rounded-xl border px-4 py-3 text-base sm:text-sm outline-none transition-all focus:border-[var(--accent)] focus:shadow-[0_0_0_4px_var(--accent-light)]";
 const inputStyle = { background: "var(--bg-card)", borderColor: "var(--border)", color: "var(--text-primary)" } as const;
 
+/** team to start a new request with: the remembered one if still allowed, else the only one they have */
+function startTeam(email: string, teams: string[]) {
+  const saved = getSavedTeam(email);
+  if (teams.length === 0) return saved ?? "";
+  return saved && teams.includes(saved) ? saved : teams.length === 1 ? teams[0] : "";
+}
+
 function NewTaskForm() {
-  const { user, sheetTeam, sheetName, people } = useAssignUser();
+  const { user, sheetTeam, sheetName, people, isSuperAdmin } = useAssignUser();
   const me: Person = { email: user.email, name: sheetName ?? user.name };
   const [recent] = useState(() => recentTeamCounts(30));
   const [frozenOrder, setFrozenOrder] = useState<string[] | null>(null);
@@ -66,6 +74,28 @@ function NewTaskForm() {
   const [createdBy, setCreatedBy]   = useState<Person | null>(me);
   const [owner, setOwner]           = useState<Person | null>(me);
   const [teamCreator, setTeamCreator] = useState(defaultTeam);
+  // teams this person may create briefs for: the users sheet's "ทีม" column wins, else their Discord roles.
+  // [] = unknown → they cannot create briefs until the design team adds them. Super admins are never limited.
+  const [discordTeams, setDiscordTeams] = useState<string[] | null>(null); // null = still loading
+  const [teamsFailed, setTeamsFailed] = useState(false); // list unreachable → fall back to picking freely
+  useEffect(() => {
+    if (sheetTeam || isSuperAdmin) return;
+    let alive = true;
+    fetchDiscordTeams().then((m) => {
+      if (!alive) return;
+      const teams = briefTeamsFor(m, user.email);
+      setDiscordTeams(teams);
+      // keep the picked team inside their teams (one team → picked for them); an opened edit keeps its own
+      if (!new URLSearchParams(window.location.search).get("edit")) {
+        setTeamCreator((cur) => (teams.includes(cur) ? cur : teams.length ? startTeam(user.email, teams) : ""));
+      }
+    }).catch(() => { if (alive) { setDiscordTeams([]); setTeamsFailed(true); } });
+    return () => { alive = false; };
+  }, [sheetTeam, isSuperAdmin, user.email]);
+  const teamsLoading = !sheetTeam && !isSuperAdmin && discordTeams === null;
+  // signed-in person whose team is not known: the form is closed for them
+  const noTeam = !sheetTeam && !isSuperAdmin && !teamsFailed && discordTeams?.length === 0;
+  const myTeams = useMemo(() => (isSuperAdmin ? [] : sheetTeam ? [sheetTeam] : discordTeams ?? []), [isSuperAdmin, sheetTeam, discordTeams]);
   const [company, setCompany]       = useState("");
   const [lines, setLines]           = useState<LineDraft[]>([{ id: 1, code: "", requestType: "new", qty: 1 }]);
   const [typesExtra, setTypesExtra] = useState<string[]>([]);
@@ -130,10 +160,10 @@ function NewTaskForm() {
   const sortedTeams = useMemo(() => {
     const score = (t: { label: string }) => (recent[t.label] ?? 0) + (activity[t.label] ?? 0);
     return TEAM_OPTIONS
-      .map((t, i) => ({ t, i, s: score(t), own: sheetTeam === t.label ? 1 : 0 }))
+      .map((t, i) => ({ t, i, s: score(t), own: myTeams.includes(t.label) ? 1 : 0 }))
       .sort((a, b) => b.own - a.own || b.s - a.s || a.i - b.i)
       .map((x) => x.t.label);
-  }, [recent, activity, sheetTeam]);
+  }, [recent, activity, myTeams]);
   const teamOrder = frozenOrder ?? sortedTeams;
 
   // Company options: most credit used this month first (task sheet + web requests); frozen after the first pick.
@@ -214,7 +244,7 @@ function NewTaskForm() {
     projects:    projects.length ? "" : "เลือกอย่างน้อย 1 โปรเจกต์",
     createdBy:   createdBy ? "" : "เลือกผู้สร้างจากรายชื่อ",
     owner:       owner ? "" : "เลือกเจ้าของงานจากรายชื่อ",
-    teamCreator: teamCreator ? "" : "เลือกทีมผู้สร้าง Task",
+    teamCreator: teamCreator ? "" : noTeam ? "ยังไม่มีทีมของคุณในระบบ ติดต่อทีมดีไซน์ก่อน" : "เลือกทีมผู้สร้าง Task",
     company:     company ? "" : "เลือกบริษัท",
     lines:       lineErrors.some(Boolean) ? "ตรวจรายการงานให้ครบ" : "",
     workTypes:   workTypes.length ? "" : "เลือกประเภทของงานอย่างน้อย 1 อย่าง",
@@ -278,7 +308,7 @@ function NewTaskForm() {
   }
 
   function resetForm() {
-    setTitle(""); setPriority("Normal"); setProjects([]); setOwner(me); setTeamCreator(sheetTeam ?? getSavedTeam(user.email) ?? ""); setCompany("");
+    setTitle(""); setPriority("Normal"); setProjects([]); setOwner(me); setTeamCreator(noTeam ? "" : startTeam(user.email, myTeams)); setCompany("");
     setLines([{ id: nextLineId.current++, code: "", requestType: "new", qty: 1 }]);
     setTypesExtra([]); setTypesOff([]); setSummaryDraft(""); setSummaryEdited(false); setLink(""); setObjective("");
     setNeedBy(""); setUseDate(""); setFiles([]); setTried(false); setStep(1);
@@ -450,10 +480,35 @@ function NewTaskForm() {
           <form onSubmit={(e) => { e.preventDefault(); if (step < 4) goNext(); else submit(); }} noValidate className="flex flex-col gap-5">
 
             {step === 1 && <Section step="1" title="เจ้าของงาน" desc="เลือกทีมและบริษัท ระบบจะใช้ตัดเครดิต">
-              <Field label="ทีมสร้างบรีฟงาน" required error={show("teamCreator")} hint={sheetTeam ? "ทีมของคุณตามรายชื่อผู้ใช้ (เปลี่ยนไม่ได้)" : "ทีมผู้สร้าง Task งานนี้ · ระบบจะจำทีมที่เลือกไว้ให้ครั้งหน้า"}>
-                <Chips options={teamOrder} value={teamCreator} lockedTo={sheetTeam} display={teamDisplay} grid
-                  onPick={(t) => { setFrozenOrder(teamOrder); setTeamCreator(t); saveTeam(user.email, t); }} />
-              </Field>
+              {(() => {
+                // known team(s) → only those are offered; one team is simply shown, locked
+                const own = editing ? [] : myTeams;
+                const pick = (t: string) => { setFrozenOrder(teamOrder); setTeamCreator(t); saveTeam(user.email, t); };
+                return (
+                  <Field label="ทีมสร้างบรีฟงาน" required error={show("teamCreator")}
+                    hint={noTeam && !editing ? undefined : own.length === 1 ? "ทีมของคุณตามรายชื่อ" : own.length > 1 ? "ทีมของคุณตามรายชื่อ · เลือก 1 ทีม" : "ทีมผู้สร้าง Task งานนี้ · ระบบจะจำทีมที่เลือกไว้ให้ครั้งหน้า"}>
+                    {noTeam && !editing ? (
+                      <div className="rounded-xl border px-4 py-3.5 flex gap-3 items-start" style={{ background: "var(--accent-light)", borderColor: "var(--accent)" }} role="status">
+                        <svg className="mt-0.5 shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-strong)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>
+                        <div className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
+                          <p className="font-bold">ยังไม่พบทีมของคุณในระบบ</p>
+                          <p style={{ color: "var(--text-secondary)" }}>ติดต่อทีมดีไซน์ให้เพิ่มทีมให้ก่อน แล้วจึงส่งรีเควสได้ · แจ้งอีเมล <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{user.email}</span></p>
+                        </div>
+                      </div>
+                    ) : teamsLoading && !editing ? (
+                      <div className="min-h-12 flex items-center text-sm" style={{ color: "var(--text-muted)" }}>กำลังดูทีมของคุณ…</div>
+                    ) : own.length === 1 ? (
+                      <div className="inline-flex items-center gap-2 rounded-xl px-5 min-h-12 text-[15px] font-bold text-white"
+                        style={{ background: "var(--accent-strong)" }} aria-label={`ทีม ${teamDisplay(own[0])} (ล็อกไว้)`}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+                        {teamDisplay(own[0])}
+                      </div>
+                    ) : (
+                      <Chips options={own.length > 1 ? own : teamOrder} value={teamCreator} display={teamDisplay} grid onPick={pick} />
+                    )}
+                  </Field>
+                );
+              })()}
               <Field label="งานของบริษัท" required error={show("company")}>
                 <div ref={companyRef}>
                   <Chips options={companyOrder} value={company} onPick={(c) => { setFrozenCompanies(companyOrder); setCompany(c); }} grid cols={4} />
@@ -742,8 +797,8 @@ function Field({ label, required, hint, error, children }: {
   );
 }
 
-function Chips({ options, value, onPick, multi, lockedTo, display, grid, cols = 7, searchable }: {
-  options: string[]; value: string | string[]; onPick: (v: string) => void; multi?: boolean; lockedTo?: string;
+function Chips({ options, value, onPick, multi, display, grid, cols = 7, searchable }: {
+  options: string[]; value: string | string[]; onPick: (v: string) => void; multi?: boolean;
   display?: (v: string) => string;
   /** large equal-width buttons, 7 per row on desktop */
   grid?: boolean;
@@ -794,7 +849,6 @@ function Chips({ options, value, onPick, multi, lockedTo, display, grid, cols = 
                 if (window.matchMedia("(pointer: fine)").matches) searchRef.current?.focus();
               }
             }}
-            disabled={!!lockedTo && o !== lockedTo}
             role={multi ? undefined : "radio"} aria-checked={multi ? undefined : on}
             className={`${on ? "chip-on" : "hover:border-[var(--text-muted)]"} rounded-xl border font-semibold transition-all disabled:opacity-35 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)] ${grid ? "px-1 min-h-12 flex items-center justify-center text-center text-[13px] leading-tight" : "px-3 min-h-10 sm:min-h-0 sm:py-1.5 text-xs"}`}
             style={on
