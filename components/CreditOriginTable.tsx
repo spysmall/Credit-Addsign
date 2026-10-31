@@ -15,11 +15,11 @@ interface Props {
   workdayInfo: WorkdayInfo;
   year: number;
   month: number;
-  prevMonthCredits: number;
-  prevMonthLabel: string;
+  /** reports this month's team total after leave; `simulated` = someone edited a number by hand */
+  onTotalChange?: (credits: number, simulated: boolean) => void;
 }
 
-export default function CreditOriginTable({ workdayInfo, year, month, prevMonthCredits, prevMonthLabel }: Props) {
+export default function CreditOriginTable({ workdayInfo, year, month, onTotalChange }: Props) {
   const [memberStates, setMemberStates] = useState<Record<string, MemberState>>(() => {
     const init: Record<string, MemberState> = {};
     TEAM_MEMBERS.forEach((m) => {
@@ -32,6 +32,7 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
   });
 
   const [sheetLoading, setSheetLoading] = useState(true);
+  const [simulated, setSimulated] = useState(false);
   const [sheetError, setSheetError] = useState(false);
 
   const loadLeave = (y: number, m: number) => {
@@ -67,63 +68,84 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
   const getBase = (m: TeamMember) =>
     m.isLead ? (memberStates[m.id]?.customHours ?? workdayInfo.workingHours) : workdayInfo.workingHours;
 
-  const setTimeOff = (id: string, h: number) =>
+  const setTimeOff = (id: string, h: number) => {
     setMemberStates((p) => ({ ...p, [id]: { ...p[id], timeOffHours: h } }));
+    setSimulated(true);
+  };
 
   const saveLeadHours = (h: number) => {
     const lead = TEAM_MEMBERS.find((m) => m.isLead);
     if (!lead) return;
     setMemberStates((p) => ({ ...p, [lead.id]: { ...p[lead.id], customHours: h } }));
     setEditingLead(false);
+    setSimulated(true);
+  };
+
+  /** drop hand-edited numbers and go back to the leave sheet + configured lead hours */
+  const resetToSheet = () => {
+    setMemberStates((p) => {
+      const next = { ...p };
+      TEAM_MEMBERS.forEach((m) => {
+        if (m.isLead) next[m.id] = { ...next[m.id], customHours: m.customHoursPerMonth ?? workdayInfo.workingHours };
+      });
+      return next;
+    });
+    setSimulated(false);
+    loadLeave(year, month);
   };
 
   const active = TEAM_MEMBERS.filter((m) => !m.excludeFromCredits);
-  const excluded = TEAM_MEMBERS.filter((m) => m.excludeFromCredits);
   const totalHours = active.reduce((s, m) => s + Math.max(0, getBase(m) - (memberStates[m.id]?.timeOffHours ?? 0)), 0);
   const totalCredits = hoursToCredits(totalHours);
+  const totalBase = active.reduce((s, m) => s + getBase(m), 0);
+  const totalOff = active.reduce((s, m) => s + (memberStates[m.id]?.timeOffHours ?? 0), 0);
+
+  useEffect(() => {
+    if (!sheetLoading) onTotalChange?.(totalCredits, simulated);
+  }, [totalCredits, simulated, sheetLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const COLS = "minmax(0,1fr) 112px 112px 112px 96px";
 
   return (
-    <div className="rounded-2xl overflow-hidden border shadow-sm"
-      style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}>
+    <div className="surface overflow-hidden">
+
+      {(simulated || sheetError) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5 py-2.5 text-xs border-b" role="status"
+          style={sheetError
+            ? { background: "var(--danger-bg)", borderColor: "var(--danger-line)", color: "var(--danger)" }
+            : { background: "var(--warning-bg)", borderColor: "var(--warning-line)", color: "var(--warning)" }}>
+          <span className="font-semibold">
+            {sheetError ? "โหลดข้อมูลวันลาจากชีตไม่สำเร็จ" : "กำลังจำลองตัวเลข · ค่าที่แก้ในหน้านี้ไม่ถูกบันทึก และไม่มีผลกับ Dashboard"}
+          </span>
+          <button type="button" onClick={sheetError ? () => loadLeave(year, month) : resetToSheet} className="font-semibold underline underline-offset-2">
+            {sheetError ? "ลองใหม่" : "คืนค่าจากชีต"}
+          </button>
+        </div>
+      )}
 
       {/* ─── DESKTOP TABLE (md+) ─── */}
       <div className="hidden md:block">
         {/* Header */}
-        <div className="grid border-b"
-          style={{ gridTemplateColumns: "1fr 110px 110px 110px 100px", borderColor: "var(--border)", background: "#FAFAFA" }}>
-          <ColHead className="px-5 py-3.5 text-left" style={{ color: "var(--text-muted)" }}>สมาชิก</ColHead>
-          <ColHead className="px-4 py-3.5 text-center" style={{ color: "var(--text-muted)" }}>
-            Working<sub className="block normal-case font-medium tracking-normal text-[10px] not-italic">hrs / month</sub>
+        <div className="grid border-b text-xs" style={{ gridTemplateColumns: COLS, borderColor: "var(--border)", color: "var(--text-secondary)" }}>
+          <ColHead className="px-5 py-3 items-start">สมาชิก</ColHead>
+          <ColHead className="px-3 py-3">ชั่วโมงทำงาน</ColHead>
+          <ColHead className="px-3 py-3">
+            <span className="inline-flex items-center gap-1">ลา / หยุด (ชม.){sheetLoading && <span className="animate-pulse" style={{ color: "var(--accent)" }} aria-label="กำลังโหลด">●</span>}</span>
           </ColHead>
-          <ColHead className="px-4 py-3.5 text-center" style={{ color: "var(--accent)", background: "var(--accent-light)" }}>
-            <div className="flex items-center gap-1 justify-center">
-              <span>Time Off</span>
-              {sheetLoading && <span className="text-[9px] animate-pulse" style={{ color: "var(--accent)" }}>●</span>}
-              {sheetError && (
-                <button onClick={() => loadLeave(year, month)} title="โหลดซ้ำ"
-                  className="text-[9px] px-1 rounded hover:opacity-70" style={{ color: "#EF4444" }}>⚠ retry</button>
-              )}
-            </div>
-            <sub className="block normal-case font-medium tracking-normal text-[10px] not-italic opacity-70">ชั่วโมงหยุด / ลา</sub>
-          </ColHead>
-          <ColHead className="px-4 py-3.5 text-center" style={{ color: "var(--text-muted)" }}>
-            Remaining<sub className="block normal-case font-medium tracking-normal text-[10px] not-italic">ชั่วโมงสุทธิ</sub>
-          </ColHead>
-          <ColHead className="px-4 py-3.5 text-center" style={{ color: "#fff", background: "var(--bg-dark)" }}>
-            M Coin<sub className="block normal-case font-medium tracking-normal text-[10px] not-italic opacity-60">เครดิต</sub>
-          </ColHead>
+          <ColHead className="px-3 py-3">ชั่วโมงสุทธิ</ColHead>
+          <ColHead className="px-3 py-3" style={{ color: "var(--accent-strong)" }}>M Coin</ColHead>
         </div>
 
         {/* Active rows */}
-        {active.map((m, i) => {
+        {active.map((m) => {
           const base = getBase(m);
           const off = memberStates[m.id]?.timeOffHours ?? 0;
           const remaining = Math.max(0, base - off);
           const credits = hoursToCredits(remaining);
           const deducted = off > 0;
           return (
-            <div key={m.id} className="grid border-b transition-colors hover:bg-[#FFF8F5]"
-              style={{ gridTemplateColumns: "1fr 110px 110px 110px 100px", borderColor: "var(--border)", background: i % 2 === 0 ? "var(--bg-card)" : "#FEFEFE" }}>
+            <div key={m.id} className="grid border-b transition-colors hover:bg-[var(--bg-page)]"
+              style={{ gridTemplateColumns: COLS, borderColor: "var(--border)" }}>
               {/* Member */}
               <div className="px-5 py-3.5 flex items-center gap-3">
                 <Avatar member={m} />
@@ -132,7 +154,9 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
                     <p className="font-semibold text-sm leading-tight" style={{ color: "var(--text-primary)" }}>{m.fullName}</p>
                     {m.isLead && <LeadBadge />}
                   </div>
-                  <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>({m.nickname})</p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                    {m.nickname}{m.isLead && <span> · ชั่วโมงกำหนดเฉพาะ Lead</span>}
+                  </p>
                 </div>
               </div>
               {/* Working hrs */}
@@ -141,8 +165,7 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
                   setLeadInput={setLeadInput} setEditingLead={setEditingLead} saveLeadHours={saveLeadHours} />
               </div>
               {/* Time off */}
-              <div className="px-4 py-3.5 flex items-center justify-center"
-                style={{ background: deducted ? "var(--accent-light)" : "transparent" }}>
+              <div className="px-4 py-3.5 flex items-center justify-center">
                 {sheetLoading ? (
                   <span className="text-sm animate-pulse" style={{ color: "var(--text-muted)" }}>…</span>
                 ) : (
@@ -152,71 +175,43 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
               </div>
               {/* Remaining */}
               <div className="px-4 py-3.5 flex items-center justify-center">
-                <span className="font-bold text-base" style={{ color: deducted ? "var(--accent)" : "var(--text-primary)" }}>
+                <span className="num font-semibold text-base" style={{ color: deducted ? "var(--accent-strong)" : "var(--text-primary)" }}>
                   {remaining}
                 </span>
               </div>
               {/* M Coin */}
-              <div className="px-4 py-3.5 flex items-center justify-center" style={{ background: "#FAFAFA" }}>
+              <div className="px-4 py-3.5 flex items-center justify-center">
                 <MCoinBadge value={credits} />
               </div>
             </div>
           );
         })}
 
-        {/* Excluded */}
-        {excluded.map((m) => (
-          <div key={m.id} className="grid border-b"
-            style={{ gridTemplateColumns: "1fr 110px 110px 110px 100px", borderColor: "var(--border)", background: "#FAFAFA" }}>
-            <div className="px-5 py-3 flex items-center gap-3 opacity-40">
-              <Avatar member={m} muted />
-              <div>
-                <p className="font-semibold text-sm" style={{ color: "var(--text-secondary)" }}>{m.fullName}</p>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>({m.nickname})</p>
-              </div>
-            </div>
-            <div className="col-span-4 flex items-center justify-center px-4 py-3">
-              <AIBadge />
-            </div>
-          </div>
-        ))}
 
         {/* Total */}
-        <div className="grid" style={{ gridTemplateColumns: "1fr 110px 110px 110px 100px", background: "var(--bg-dark)" }}>
-          <div className="px-5 py-4 col-span-3 flex items-center gap-3">
-            <span className="text-xs font-black uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.5)" }}>Total</span>
-            <span className="text-[10px] font-semibold" style={{ color: "rgba(255,255,255,0.35)" }}>เครดิตรวม {prevMonthLabel} →</span>
-          </div>
-          <div className="px-4 py-4 flex items-center justify-center">
-            <span className="font-black text-xl" style={{ color: "var(--accent)" }}>{prevMonthCredits}</span>
-          </div>
-          <div className="px-4 py-4 flex items-center justify-center" style={{ background: "var(--accent)" }}>
-            <span className="font-black text-2xl text-white">{totalCredits}</span>
+        <div className="grid items-center text-white" style={{ gridTemplateColumns: COLS, background: "var(--bg-dark)" }}>
+          <div className="px-5 py-4 text-sm font-semibold">รวมทั้งทีม <span className="font-normal" style={{ color: "rgba(255,255,255,0.7)" }}>· {active.length} คน</span></div>
+          <div className="px-3 py-4 text-center num font-semibold">{totalBase.toLocaleString()}</div>
+          <div className="px-3 py-4 text-center num font-semibold" style={{ color: totalOff > 0 ? "#FFB599" : "rgba(255,255,255,0.6)" }}>{totalOff > 0 ? totalOff.toLocaleString() : "—"}</div>
+          <div className="px-3 py-4 text-center num font-semibold">{totalHours.toLocaleString()}</div>
+          <div className="px-3 py-4 flex justify-center">
+            <span className="num rounded-lg px-3 py-1.5 text-lg font-bold text-white" style={{ background: "var(--accent)" }}>{totalCredits.toLocaleString()}</span>
           </div>
         </div>
       </div>
 
       {/* ─── MOBILE CARDS (< md) ─── */}
       <div className="md:hidden">
-        {/* Mobile col labels */}
-        <div className="grid grid-cols-3 border-b px-4 py-2.5"
-          style={{ borderColor: "var(--border)", background: "#FAFAFA" }}>
-          <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Working</p>
-          <p className="text-[10px] font-black uppercase tracking-wider text-center"
-            style={{ color: "var(--accent)" }}>Time Off</p>
-          <p className="text-[10px] font-black uppercase tracking-wider text-right" style={{ color: "var(--text-muted)" }}>M Coin</p>
-        </div>
 
         {/* Active cards */}
-        {active.map((m, i) => {
+        {active.map((m) => {
           const base = getBase(m);
           const off = memberStates[m.id]?.timeOffHours ?? 0;
           const remaining = Math.max(0, base - off);
           const credits = hoursToCredits(remaining);
           const deducted = off > 0;
           return (
-            <div key={m.id} className="border-b px-4 py-3.5"
-              style={{ borderColor: "var(--border)", background: i % 2 === 0 ? "var(--bg-card)" : "#FEFEFE" }}>
+            <div key={m.id} className="border-b px-4 py-3.5" style={{ borderColor: "var(--border)" }}>
               {/* Member info row */}
               <div className="flex items-center gap-3 mb-3">
                 <Avatar member={m} size="sm" />
@@ -227,7 +222,9 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
                     </p>
                     {m.isLead && <LeadBadge />}
                   </div>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>({m.nickname})</p>
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    {m.nickname}{m.isLead && <span> · ชั่วโมงเฉพาะ Lead</span>}
+                  </p>
                 </div>
                 <MCoinBadge value={credits} />
               </div>
@@ -235,69 +232,46 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
               {/* Stats row */}
               <div className="grid grid-cols-3 gap-2">
                 {/* Working */}
-                <div className="rounded-xl p-3 text-center" style={{ background: "#F5F5F5" }}>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--text-muted)" }}>Working</p>
+                <div className="rounded-xl p-3 text-center" style={{ background: "var(--bg-page)" }}>
+                  <p className="text-xs mb-1" style={{ color: "var(--text-secondary)" }}>ทำงาน</p>
                   <WorkingHrsCell m={m} base={base} editingLead={editingLead} leadInput={leadInput}
                     setLeadInput={setLeadInput} setEditingLead={setEditingLead} saveLeadHours={saveLeadHours} />
-                  <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>ชั่วโมง</p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>ชั่วโมง</p>
                 </div>
 
                 {/* Time off */}
-                <div className="rounded-xl p-3 text-center"
-                  style={{ background: deducted ? "var(--accent-light)" : "#F5F5F5" }}>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide mb-1"
-                    style={{ color: deducted ? "var(--accent)" : "var(--text-muted)" }}>Time Off</p>
+                <div className="rounded-xl p-3 text-center" style={{ background: "var(--bg-page)" }}>
+                  <p className="text-xs mb-1" style={{ color: "var(--text-secondary)" }}>ลา / หยุด</p>
                   {sheetLoading ? (
                     <span className="text-sm animate-pulse" style={{ color: "var(--text-muted)" }}>…</span>
                   ) : (
                     <HolidayEditor memberId={m.id} memberName={`${m.fullName} (${m.nickname})`}
                       currentTimeOffHours={off} maxHours={base} onUpdate={setTimeOff} />
                   )}
-                  <p className="text-[10px] mt-0.5" style={{ color: deducted ? "var(--accent)" : "var(--text-muted)" }}>
-                    {sheetLoading ? "กำลังโหลด…" : deducted ? "ชั่วโมง" : "แตะเพื่อแก้ไข"}
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                    {sheetLoading ? "กำลังโหลด…" : "ชั่วโมง"}
                   </p>
                 </div>
 
                 {/* Remaining */}
-                <div className="rounded-xl p-3 text-center" style={{ background: "#F5F5F5" }}>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--text-muted)" }}>Remaining</p>
+                <div className="rounded-xl p-3 text-center" style={{ background: "var(--bg-page)" }}>
+                  <p className="text-xs mb-1" style={{ color: "var(--text-secondary)" }}>สุทธิ</p>
                   <p className="font-bold text-base leading-none"
-                    style={{ color: deducted ? "var(--accent)" : "var(--text-primary)" }}>
+                    style={{ color: deducted ? "var(--accent-strong)" : "var(--text-primary)" }}>
                     {remaining}
                   </p>
-                  <p className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>ชั่วโมง</p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>ชั่วโมง</p>
                 </div>
               </div>
             </div>
           );
         })}
 
-        {/* Excluded */}
-        {excluded.map((m) => (
-          <div key={m.id} className="border-b px-4 py-3.5 flex items-center gap-3"
-            style={{ borderColor: "var(--border)", background: "#FAFAFA" }}>
-            <Avatar member={m} muted size="sm" />
-            <div className="flex-1 min-w-0 opacity-40">
-              <p className="font-semibold text-sm truncate" style={{ color: "var(--text-secondary)" }}>{m.fullName}</p>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>({m.nickname})</p>
-            </div>
-            <AIBadge />
-          </div>
-        ))}
 
         {/* Total */}
-        <div className="px-4 py-4 flex items-center justify-between" style={{ background: "var(--bg-dark)" }}>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest mb-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>เครดิตรวม {prevMonthLabel}</p>
-            <p className="font-black text-xl" style={{ color: "var(--accent)" }}>{prevMonthCredits}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: "rgba(255,255,255,0.4)" }}>M Coin รวม</p>
-            <div className="inline-flex items-center justify-center rounded-xl px-5 py-2"
-              style={{ background: "var(--accent)" }}>
-              <span className="font-black text-2xl text-white">{totalCredits}</span>
-            </div>
-          </div>
+        <div className="px-4 py-4 flex items-center justify-between text-white" style={{ background: "var(--bg-dark)" }}>
+          <p className="text-sm font-semibold">รวมทั้งทีม <span className="num font-normal" style={{ color: "rgba(255,255,255,0.7)" }}>· สุทธิ {totalHours.toLocaleString()} ชม.</span></p>
+          <span className="num rounded-lg px-3 py-1.5 text-lg font-bold text-white" style={{ background: "var(--accent)" }}>{totalCredits.toLocaleString()}</span>
         </div>
       </div>
     </div>
@@ -308,7 +282,7 @@ export default function CreditOriginTable({ workdayInfo, year, month, prevMonthC
 
 function ColHead({ children, className, style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
   return (
-    <div className={`text-[10px] font-black uppercase tracking-widest flex flex-col items-center justify-center ${className}`} style={style}>
+    <div className={`font-medium flex flex-col items-center justify-center text-center ${className}`} style={style}>
       {children}
     </div>
   );
@@ -319,17 +293,11 @@ function getInitial(nickname: string): string {
   return nickname.charAt(0);
 }
 
-function Avatar({ member, muted, size = "md" }: { member: TeamMember; muted?: boolean; size?: "sm" | "md" }) {
+function Avatar({ member, size = "md" }: { member: TeamMember; size?: "sm" | "md" }) {
   const sz = size === "sm" ? "w-8 h-8 text-xs" : "w-9 h-9 text-sm";
-  if (muted) return (
-    <div className={`${sz} rounded-xl flex items-center justify-center font-black shrink-0`}
-      style={{ background: "#E8E8E8", color: "#9A9A9A" }}>
-      {getInitial(member.nickname)}
-    </div>
-  );
   return (
-    <div className={`${sz} rounded-xl flex items-center justify-center font-black shrink-0`}
-      style={member.isLead ? { background: "var(--bg-dark)", color: "#fff" } : { background: "#F0F0F0", color: "var(--text-primary)" }}>
+    <div className={`${sz} rounded-full flex items-center justify-center font-bold shrink-0`}
+      style={member.isLead ? { background: "var(--bg-dark)", color: "#fff" } : { background: "var(--accent-light)", color: "var(--accent-strong)" }}>
       {getInitial(member.nickname)}
     </div>
   );
@@ -337,25 +305,16 @@ function Avatar({ member, muted, size = "md" }: { member: TeamMember; muted?: bo
 
 function LeadBadge() {
   return (
-    <span className="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0"
-      style={{ background: "var(--accent)", color: "#fff" }}>Lead</span>
+    <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md shrink-0"
+      style={{ background: "var(--bg-dark)", color: "#fff" }}>Lead</span>
   );
 }
 
 function MCoinBadge({ value }: { value: number }) {
   return (
-    <span className="font-black text-base w-11 h-8 rounded-lg flex items-center justify-center shrink-0"
-      style={{ background: "var(--accent)", color: "#fff" }}>
+    <span className="num font-bold text-base min-w-11 h-8 px-2 rounded-lg flex items-center justify-center shrink-0"
+      style={{ background: "var(--accent-light)", color: "var(--accent-strong)" }}>
       {value}
-    </span>
-  );
-}
-
-function AIBadge() {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border shrink-0"
-      style={{ color: "var(--text-muted)", borderColor: "var(--border)", background: "var(--bg-card)" }}>
-      🤖 ถูกแยกไปทำงาน AI
     </span>
   );
 }
@@ -381,7 +340,8 @@ function WorkingHrsCell({ m, base, editingLead, leadInput, setLeadInput, setEdit
   return (
     <button
       onClick={m.isLead ? () => { setLeadInput(String(base)); setEditingLead(true); } : undefined}
-      className={`font-bold text-base leading-none ${m.isLead ? "underline decoration-dashed underline-offset-2" : ""}`}
+      title={m.isLead ? "คลิกเพื่อลองปรับชั่วโมงของ Lead (จำลอง)" : undefined}
+      className={`num font-semibold text-base leading-none ${m.isLead ? "underline decoration-dashed underline-offset-4" : ""}`}
       style={{ color: "var(--text-primary)", textDecorationColor: "var(--accent)", cursor: m.isLead ? "pointer" : "default" }}>
       {base}
     </button>

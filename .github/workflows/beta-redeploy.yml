@@ -1,0 +1,20 @@
+name: Redeploy with beta
+
+# A push to beta starts the Pages deploy on main, which builds the live site and the
+# /beta test site together (see deploy.yml).
+
+on:
+  push:
+    branches: [beta]
+
+permissions:
+  actions: write
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the Pages deploy on main
+        run: gh workflow run deploy.yml --ref main --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ github.token }}

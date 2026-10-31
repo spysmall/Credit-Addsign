@@ -36,7 +36,7 @@ export default function HolidayEditor({ memberId, memberName, currentTimeOffHour
   const trigger = currentTimeOffHours === 0 ? (
     <button onClick={openPopup} className="flex justify-center w-full group">
       <span className="text-lg leading-none transition-colors group-hover:opacity-50"
-        style={{ color: "var(--border)" }}>—</span>
+        style={{ color: "var(--text-muted)" }}>—</span>
     </button>
   ) : (
     <button
@@ -59,7 +59,7 @@ export default function HolidayEditor({ memberId, memberName, currentTimeOffHour
 
             <div className="px-5 pt-4 pb-3 border-b" style={{ borderColor: "var(--border)" }}>
               <p className="font-bold text-sm" style={{ color: "var(--text-primary)" }}>{memberName}</p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>ข้อมูลวันหยุด / ลา</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>ข้อมูลวันหยุด / ลา · ค่าที่แก้ใช้จำลองเท่านั้น</p>
             </div>
 
             <div className="px-5 py-4 space-y-3">

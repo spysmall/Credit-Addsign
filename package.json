@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "sync:remaining": "node scripts/sync-remaining.mjs"
+    "sync:remaining": "node scripts/sync-remaining.mjs",
+    "notion:bridge": "node scripts/notion-bridge.mjs",
+    "notion:members": "node scripts/notion-members.mjs --values"
   },
   "dependencies": {
     "next": "16.2.9",

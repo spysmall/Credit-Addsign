@@ -1,4 +1,5 @@
 import { getHolidaysForMonth } from "./holidays";
+import { TEAM_MEMBERS } from "./team";
 
 export interface WorkdayInfo {
   totalDays: number;
@@ -43,4 +44,13 @@ export const HOURS_PER_CREDIT = 2;
 
 export function hoursToCredits(hours: number): number {
   return hours / HOURS_PER_CREDIT;
+}
+
+/** Total team credits for a month, after deducting approved leave hours (per member id). */
+export function teamTotalCredits(year: number, month: number, leave: Record<string, number> = {}): number {
+  const info = getWorkdayInfo(year, month);
+  return TEAM_MEMBERS.filter((m) => !m.excludeFromCredits).reduce((sum, m) => {
+    const base = m.isLead ? (m.customHoursPerMonth ?? info.workingHours) : info.workingHours;
+    return sum + hoursToCredits(Math.max(0, base - (leave[m.id] ?? 0)));
+  }, 0);
 }
