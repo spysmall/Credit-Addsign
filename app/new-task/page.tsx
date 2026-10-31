@@ -24,6 +24,8 @@ import {
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const MAX_FILES = 20;
+/** a team may go this far below zero; past it a request is refused */
+const OVERDRAFT_LIMIT = 50;
 /** Urgent = a "ตั๋วทอง" queue jump: its reason is added to the end of the objective sent to Notion */
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const isWorkday = (d: Date) =>
@@ -268,8 +270,11 @@ function NewTaskForm() {
   // while editing, the request's own old credit is still counted as used — give it back for the check
   const ownCredit = editing && teamGroup(editing.teamCreator) === group ? editing.useCredit : 0;
   const avail    = !loadingData && group ? teamAvailability(config, total, usage, group, webUsedForGroup(year, month, group) - ownCredit) : null;
-  const shortfall = avail ? Math.max(0, Math.round((useCredit - avail.remaining) * 100) / 100) : 0;
-  const notEnough = !!avail && useCredit > avail.remaining;
+  // within the overdraft the request goes through with a warning; beyond it, it is refused
+  const shortfall = avail ? Math.max(0, Math.round((useCredit - avail.remaining - OVERDRAFT_LIMIT) * 100) / 100) : 0;
+  const notEnough = !!avail && useCredit > avail.remaining + OVERDRAFT_LIMIT;
+  const overBy = avail ? Math.max(0, Math.round((useCredit - avail.remaining) * 100) / 100) : 0;
+  const overdraft = !notEnough && overBy > 0;
 
   const autoSummary = lines
     .map((l) => {
@@ -345,7 +350,7 @@ function NewTaskForm() {
     !stepKeys[n].some((k) => errors[k]) && (n !== 3 || (useCredit > 0 && !notEnough));
   const canReach = (n: number) => STEPS.filter((x) => x.n < n).every((x) => stepOk(x.n));
   const blockMsg =
-    step >= 3 && notEnough ? `เครดิตไม่พอ ขาดอีก ${fmt(shortfall)} M Coin — ลดจำนวนหรือเปลี่ยนรายการงาน`
+    step >= 3 && notEnough ? `เกินเครดิตเกิน ${OVERDRAFT_LIMIT} M Coin แล้ว (เกินมาอีก ${fmt(shortfall)}) — ลดจำนวนหรือเปลี่ยนรายการงาน`
     : stepKeys[step].map((k) => errors[k]).find(Boolean)
       ?? (step >= 3 && useCredit <= 0 ? "เพิ่มรายการงานที่มีเครดิตก่อน" : "");
 
@@ -418,8 +423,8 @@ function NewTaskForm() {
     if (firstError || !resolved) return;
     // re-check against fresh storage so two open tabs can't overspend
     const fresh = teamAvailability(config, total, usage, group!, webUsedForGroup(year, month, group!) - ownCredit);
-    if (useCredit > fresh.remaining) {
-      setNotice({ kind: "error", text: `เครดิตไม่พอ — คงเหลือ ${fmt(fresh.remaining)} แต่งานนี้ใช้ ${fmt(useCredit)}` });
+    if (useCredit > fresh.remaining + OVERDRAFT_LIMIT) {
+      setNotice({ kind: "error", text: `เครดิตไม่พอ — คงเหลือ ${fmt(fresh.remaining)} แต่งานนี้ใช้ ${fmt(useCredit)} (เกินได้ไม่เกิน ${OVERDRAFT_LIMIT} M Coin)` });
       return;
     }
     const task: AssignedTask = {
@@ -478,7 +483,7 @@ function NewTaskForm() {
             {editing ? "แก้ไขรีเควส" : "ส่งรีเควสงาน"} <span className="num" style={{ color: "var(--accent-strong)" }}>{THAI_MONTHS_SHORT[month - 1]} {year + 543}</span>
           </h1>
           <p className="text-sm mt-2 max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-            ระบบคำนวณเครดิตจากตารางราคาและหักจากเครดิตของทีมทันที ถ้าเครดิตไม่พอจะส่งรีเควสไม่ได้
+            ระบบคำนวณเครดิตจากตารางราคาและหักจากเครดิตของทีมทันที ถ้าเครดิตไม่พอ ใช้เกินได้ไม่เกิน {OVERDRAFT_LIMIT} M Coin
           </p>
           </div>
           <AssignTabs active="request" />
@@ -807,9 +812,9 @@ function NewTaskForm() {
             <div className="flex flex-col gap-2 pb-2 max-lg:sticky max-lg:bottom-0 max-lg:z-20 max-lg:-mx-4 max-lg:px-4 max-lg:pt-3 max-lg:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-lg:border-t max-lg:bg-[var(--bg-page)]" style={{ borderColor: "var(--border)" }}>
               {avail && (
                 <p className="lg:hidden flex justify-between gap-3 text-xs font-semibold num" aria-live="polite"
-                  style={{ color: notEnough ? "var(--danger)" : "var(--text-secondary)" }}>
+                  style={{ color: notEnough ? "var(--danger)" : overdraft ? "var(--warning)" : "var(--text-secondary)" }}>
                   <span>คงเหลือ {fmt(Math.max(0, avail.remaining))} M Coin</span>
-                  <span>{notEnough ? `ขาด ${fmt(shortfall)}` : `งานนี้ใช้ ${fmt(useCredit)}`}</span>
+                  <span>{notEnough ? `เกินลิมิตอีก ${fmt(shortfall)}` : overdraft ? `⚠ ใช้เกินเครดิต ${fmt(overBy)}` : `งานนี้ใช้ ${fmt(useCredit)}`}</span>
                 </p>
               )}
               <div className="flex items-center justify-between gap-3">
@@ -864,11 +869,16 @@ function NewTaskForm() {
                     <Row k="ใช้ไปแล้ว (แอดผ่านเว็บ)" v={fmt(avail.webUsed)} />
                     <Row k="งานนี้ใช้" v={`− ${fmt(useCredit)}`} accent />
                     <div className="h-px my-1" style={{ background: "rgba(255,255,255,0.15)" }} />
-                    <Row k="คงเหลือหลังแอด" v={fmt(afterRemaining)} bold danger={notEnough} />
+                    <Row k="คงเหลือหลังแอด" v={fmt(afterRemaining)} bold danger={notEnough || overdraft} />
                   </dl>
                   {notEnough && (
                     <p className="mt-3 rounded-lg px-3 py-2 text-xs font-semibold" style={{ background: "rgba(248,113,113,0.15)", color: "#FCA5A5" }} role="alert">
-                      เครดิตไม่พอ: ขาดอีก {fmt(shortfall)} M Coin · ลดจำนวนชิ้นหรือเปลี่ยนรายการงาน
+                      ส่งไม่ได้: ใช้เกินเครดิตได้ไม่เกิน {OVERDRAFT_LIMIT} M Coin · เกินมาอีก {fmt(shortfall)} · ลดจำนวนชิ้นหรือเปลี่ยนรายการงาน
+                    </p>
+                  )}
+                  {overdraft && (
+                    <p className="mt-3 rounded-lg px-3 py-2 text-xs font-semibold leading-relaxed" style={{ background: "rgba(252,211,77,0.15)", color: "#FCD34D" }} role="alert">
+                      ⚠ งานนี้ทำให้ทีมใช้เครดิตเกินจากที่มีแล้ว {fmt(overBy)} M Coin · ยังส่งได้ (เกินได้ไม่เกิน {OVERDRAFT_LIMIT})
                     </p>
                   )}
                   <p className="mt-3 text-xs leading-snug" style={{ color: "rgba(255,255,255,0.65)" }}>
@@ -1049,9 +1059,17 @@ function SubmittedDialog({ done, onClose }: {
           </div>
           <div className="rounded-xl px-4 py-3" style={{ background: "var(--bg-page)" }}>
             <dt className="text-xs" style={{ color: "var(--text-secondary)" }}>คงเหลือของทีม</dt>
-            <dd className="num text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmt(Math.max(0, done.remaining))} <span className="text-xs font-medium">M Coin</span></dd>
+            <dd className="num text-xl font-bold" style={{ color: done.remaining < 0 ? "var(--danger)" : "var(--text-primary)" }}>{fmt(done.remaining)} <span className="text-xs font-medium">M Coin</span></dd>
           </div>
         </dl>
+
+        {done.remaining < 0 && (
+          <div className="mt-4 rounded-xl border px-4 py-3 text-sm leading-relaxed" role="alert"
+            style={{ background: "var(--danger-bg)", borderColor: "var(--danger-line)", color: "var(--text-primary)" }}>
+            <p className="font-bold" style={{ color: "var(--danger)" }}>⚠ ทีมใช้เครดิตเกินแล้ว {fmt(-done.remaining)} M Coin</p>
+            <p>งานถูกส่งแล้ว · ทีมใช้เกินได้รวมไม่เกิน {OVERDRAFT_LIMIT} M Coin ต่อเดือน</p>
+          </div>
+        )}
 
         {task.priority === "Urgent" && (
           <div className="mt-4 rounded-xl border px-4 py-3 text-sm leading-relaxed" role="alert"
