@@ -9,7 +9,7 @@ const USERS_SHEET_ID = "1nHjuzBhl3cNjuAhVMzpylW5CQuT9PggzRsoNL-m0JXU";
 const USERS_GID      = "1388053801";
 
 export interface AllowedUser {
-  /** display name: ชื่อเล่น, else global_name, else Username (from the sheet) */
+  /** display name in the "ทีม : ชื่อ" form (see withTeamNames), else ชื่อเล่น / global_name / Username */
   name?: string;
   /** team from the sheet's "ทีม" column, matched to a Task Team Creator option (undefined if blank/unknown) */
   team?: string;
@@ -40,7 +40,62 @@ export async function fetchAllowedUsers(): Promise<Map<string, AllowedUser>> {
     const prev = out.get(email);
     out.set(email, { team: team ?? prev?.team, name: name ?? prev?.name });
   }
-  return out;
+  return withTeamNames(out);
+}
+
+/** "GP:BEW", "💛GP  :  Bright" → "GP : BEW", "GP : Bright"; "" when the name has no "ทีม : ชื่อ" form */
+function teamName(raw: string): string {
+  const s = raw.replace(/^[^\p{L}\p{N}(\[]+/u, "").replace(/\s+/g, " ").trim();
+  const i = s.indexOf(":");
+  if (i <= 0) return "";
+  const team = s.slice(0, i).trim(), name = s.slice(i + 1).trim();
+  return team && name ? `${team} : ${name}` : "";
+}
+
+/** short team prefix used in names when nothing better is known */
+const NAME_PREFIX: Record<string, string> = {
+  GP: "GP", Commu: "GP", "MKT-Performance": "MK", SEO: "SEO", "AGX-Biz": "AGX", "AGX-GS": "AGX",
+  "BD-CB": "BD", HOF: "HOF", Design: "DS", Content: "Content", Dev: "DEV", "BD-WangRuay": "WR", CDM: "CDM", Topfiar: "TF",
+};
+
+/**
+ * Names everyone as "ทีม : ชื่อ" (e.g. "DS : Romram"), the form used for Notion people:
+ * the Notion member list first, then the Discord server name, then team prefix + nickname.
+ * Missing tabs only mean plainer names — never a failed sign-in.
+ */
+async function withTeamNames(users: Map<string, AllowedUser>): Promise<Map<string, AllowedUser>> {
+  const tab = async (gid: string) => {
+    const res = await fetch(`https://docs.google.com/spreadsheets/d/${USERS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}`, { cache: "no-store" });
+    return res.ok ? parseCSV(await res.text()) : [];
+  };
+  const [notion, discord] = await Promise.all([tab(MEMBERS_GID).catch(() => []), tab(DISCORD_GID).catch(() => [])]);
+
+  const names = (rows: string[][], emailRe: RegExp, nameRes: RegExp[]) => {
+    const out = new Map<string, string>();
+    const [h, ...body] = rows;
+    if (!h) return out;
+    const ei = h.findIndex((x) => emailRe.test(x.trim()));
+    const nis = nameRes.map((re) => h.findIndex((x) => re.test(x.trim()))).filter((i) => i >= 0);
+    if (ei < 0) return out;
+    for (const r of body) {
+      const e = (r[ei] ?? "").trim().toLowerCase();
+      const n = nis.map((i) => teamName(r[i] ?? "")).find(Boolean);
+      if (e.includes("@") && n && !out.has(e)) out.set(e, n);
+    }
+    return out;
+  };
+  const fromNotion = names(notion, /^(อีเมล|email)/i, [/^ชื่อ$/]);
+  const fromDiscord = names(discord, /^(อีเมล|email)/i, [/^ชื่อในเซิร์ฟเวอร์$/, /^ชื่อที่แสดง$/]);
+  const teams = new Map<string, string[]>();
+  if (discord.length) for (const [e, t] of parseDiscordTeams(discord)) teams.set(e, t);
+
+  for (const [email, u] of users) {
+    const own = u.team ? [u.team] : briefTeamsFor(teams, email);
+    const prefix = own.length ? NAME_PREFIX[own[0]] : undefined;
+    const name = fromNotion.get(email) ?? fromDiscord.get(email) ?? (prefix && u.name ? `${prefix} : ${u.name}` : u.name);
+    users.set(email, { ...u, name });
+  }
+  return users;
 }
 
 // ── Teams of each person, from the "User ID Notion - Out Team in Media" tab (the Notion member list) ──
@@ -129,7 +184,10 @@ export async function fetchDiscordTeams(): Promise<Map<string, string[]>> {
   const url = `https://docs.google.com/spreadsheets/d/${USERS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${DISCORD_GID}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`discord sheet ${res.status}`);
-  const [headers, ...rows] = parseCSV(await res.text());
+  return parseDiscordTeams(parseCSV(await res.text()));
+}
+
+function parseDiscordTeams([headers, ...rows]: string[][]): Map<string, string[]> {
   if (!headers) return new Map();
 
   const col = (re: RegExp) => headers.findIndex((h) => re.test(h.trim()));

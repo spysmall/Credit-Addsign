@@ -328,7 +328,7 @@ function NewTaskForm() {
     setTitle(t.title.startsWith(prefix) ? t.title.slice(prefix.length) : t.title);
     setPriority(t.priority); setProjects(t.projects);
     setCreatedBy({ email: t.createdByEmail ?? "", name: t.createdBy });
-    setOwner(t.ownerEmail ? { email: t.ownerEmail, name: t.owner.split(" : ").pop() ?? t.owner } : me);
+    setOwner(t.ownerEmail ? people.find((p) => p.email === t.ownerEmail) ?? { email: t.ownerEmail, name: t.owner } : me);
     setTeamCreator(t.teamCreator); setCompany(t.company);
     setLines(t.lines.map((l) => ({ id: nextLineId.current++, code: l.code, requestType: l.requestType, qty: l.qty })));
     setTypesExtra(t.workTypes); setTypesOff([]);
@@ -359,7 +359,8 @@ function NewTaskForm() {
       creatorEmail: user.email,
       title: `${titlePrefix}${title.trim()}`, priority, projects, createdBy: createdBy!.name, createdByEmail: createdBy!.email,
       // Notion keeps the "Team : Name" text; the email puts the task in the owner's "งานของฉัน"
-      owner: `${teamDisplay(teamCreator)} : ${owner!.name}`, ownerEmail: owner!.email,
+      // names already read "ทีม : ชื่อ"; plain ones get the creator team in front (Notion's "GP : Name" form)
+      owner: owner!.name.includes(" : ") ? owner!.name : `${teamDisplay(teamCreator)} : ${owner!.name}`, ownerEmail: owner!.email,
       refFiles: files, link: link.trim(), objective: objective.trim(), summary: summary.trim(),
       workTypes, useCredit, needBy, useDate, teamCreator, company,
       lines: lines.map((l, i) => {

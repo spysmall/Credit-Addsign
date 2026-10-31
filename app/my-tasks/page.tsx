@@ -154,7 +154,7 @@ function MyTasks() {
                   <span className="inline-flex items-center gap-1.5"><Icon name="calendar" size={14} />ต้องการ {formatThaiDate(t.needBy)}</span>
                   <span className="inline-flex items-center gap-1.5"><Icon name="target" size={14} />ใช้งานจริง {formatThaiDate(t.useDate)}</span>
                   <span className="inline-flex items-center gap-1.5"><Icon name="user" size={14} />
-                    เจ้าของ {t.owner.split(" : ").pop()}
+                    เจ้าของ {t.owner}
                     {/* added on someone else's behalf → say who added it */}
                     {t.ownerEmail && t.ownerEmail !== t.createdByEmail && <span>· แอดโดย {t.createdBy}</span>}
                     {showAll && t.creatorEmail ? ` · ${t.creatorEmail}` : ""}
