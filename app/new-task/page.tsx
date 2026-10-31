@@ -23,6 +23,8 @@ import {
 
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const MAX_FILES = 20;
+/** Urgent = a "ตั๋วทอง" queue jump: its reason is added to the end of the objective sent to Notion */
+const urgentLine = (reason: string) => `⚡ งานด่วน (ตั๋วทอง) · เหตุผลที่แทรกงาน: ${reason}`;
 const MAX_BYTES = 100 * 1024 * 1024;
 
 interface LineDraft { id: number; code: string; requestType: RequestTypeKey; qty: number }
@@ -125,6 +127,8 @@ function NewTaskForm() {
   const [summaryEdited, setSummaryEdited] = useState(false);
   const [link, setLink]             = useState("");
   const [objective, setObjective]   = useState("");
+  const [urgentReason, setUrgentReason] = useState("");
+  const urgent = priority === "Urgent";
   const [needBy, setNeedBy]         = useState("");
   const [useDate, setUseDate]       = useState("");
   const [files, setFiles]           = useState<{ name: string; size: number }[]>([]);
@@ -272,6 +276,7 @@ function NewTaskForm() {
     summary:     summary.trim() ? "" : "กรอกสรุปจำนวนชิ้นงาน",
     link:        link.trim() ? "" : "ใส่ลิงก์ไฟล์งานหรือรายละเอียดความต้องการ",
     objective:   objective.trim() ? "" : "ระบุวัตถุประสงค์ของชิ้นงาน",
+    urgentReason: !urgent || urgentReason.trim() ? "" : "ระบุเหตุผลที่ต้องแทรกงานด่วน",
     needBy:      needBy ? "" : "เลือกวันที่ต้องการชิ้นงาน",
     useDate:     useDate ? "" : "เลือกวันที่ใช้งานจริง",
     files:       files.length > MAX_FILES ? `แนบได้ไม่เกิน ${MAX_FILES} ไฟล์`
@@ -291,7 +296,7 @@ function NewTaskForm() {
   ];
   const stepKeys: Record<number, string[]> = {
     1: ["teamCreator", "company", "createdBy", "owner"],
-    2: ["title", "projects", "objective", "link", "files"],
+    2: ["title", "projects", "urgentReason", "objective", "link", "files"],
     3: ["lines", "workTypes", "summary"],
     4: ["needBy", "useDate"],
   };
@@ -331,7 +336,7 @@ function NewTaskForm() {
   function resetForm() {
     setTitle(""); setPriority("Normal"); setProjects([]); setOwner(me); setTeamCreator(noTeam ? "" : startTeam(user.email, myTeams)); setCompany("");
     setLines([{ id: nextLineId.current++, code: "", requestType: "new", qty: 1 }]);
-    setTypesExtra([]); setTypesOff([]); setSummaryDraft(""); setSummaryEdited(false); setLink(""); setObjective("");
+    setTypesExtra([]); setTypesOff([]); setSummaryDraft(""); setSummaryEdited(false); setLink(""); setObjective(""); setUrgentReason("");
     setNeedBy(""); setUseDate(""); setFiles([]); setTried(false); setStep(1);
   }
 
@@ -354,7 +359,10 @@ function NewTaskForm() {
     setLines(t.lines.map((l) => ({ id: nextLineId.current++, code: l.code, requestType: l.requestType, qty: l.qty })));
     setTypesExtra(t.workTypes); setTypesOff([]);
     setSummaryDraft(t.summary); setSummaryEdited(true);
-    setLink(t.link); setObjective(t.objective); setNeedBy(t.needBy); setUseDate(t.useDate); setFiles(t.refFiles);
+    // the urgent line was appended on save; edit the objective without it
+    const tail = t.urgentReason ? `\n\n${urgentLine(t.urgentReason)}` : "";
+    setUrgentReason(t.urgentReason ?? "");
+    setLink(t.link); setObjective(tail && t.objective.endsWith(tail) ? t.objective.slice(0, -tail.length) : t.objective); setNeedBy(t.needBy); setUseDate(t.useDate); setFiles(t.refFiles);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function stopEditing() {
@@ -382,7 +390,8 @@ function NewTaskForm() {
       // Notion keeps the "Team : Name" text; the email puts the task in the owner's "งานของฉัน"
       // names already read "ทีม : ชื่อ"; plain ones get the creator team in front (Notion's "GP : Name" form)
       owner: owner!.name.includes(" : ") ? owner!.name : `${teamDisplay(teamCreator)} : ${owner!.name}`, ownerEmail: owner!.email,
-      refFiles: files, link: link.trim(), objective: objective.trim(), summary: summary.trim(),
+      refFiles: files, link: link.trim(), objective: urgent ? `${objective.trim()}\n\n${urgentLine(urgentReason.trim())}` : objective.trim(),
+      urgentReason: urgent ? urgentReason.trim() : undefined, summary: summary.trim(),
       workTypes, useCredit, needBy, useDate, teamCreator, company,
       lines: lines.map((l, i) => {
         const item = priceByCode.get(l.code)!;
@@ -567,9 +576,31 @@ function NewTaskForm() {
               </Field>
               <Field label="ความเร่งด่วน" required>
                 <Chips options={[...PRIORITIES]} value={priority} onPick={setPriority} />
+                {urgent && (
+                  <div className="mt-3 rounded-xl border px-4 py-3 flex gap-3 items-start" role="note"
+                    style={{ background: "var(--warning-bg)", borderColor: "var(--warning-line)" }}>
+                    <span className="text-lg leading-none mt-0.5" aria-hidden>🎫</span>
+                    <div className="text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
+                      <p className="font-bold" style={{ color: "var(--warning)" }}>Urgent = ใช้ตั๋วทองแทรกคิวงาน (เคสพิเศษ)</p>
+                      <p style={{ color: "var(--text-secondary)" }}>หลังแอดงานเสร็จ <b style={{ color: "var(--text-primary)" }}>ต้องติดต่อ Lead Team Media</b> แจ้งว่ามีงานด่วนเข้า และตกลงกันก่อนเริ่มงาน</p>
+                    </div>
+                  </div>
+                )}
               </Field>
+              {urgent && (
+                <Field label="เหตุผลที่ต้องแทรกงานด่วน" required error={show("urgentReason")} hint="จะถูกเพิ่มท้ายช่องวัตถุประสงค์ให้อัตโนมัติ">
+                  <textarea rows={2} className={inputCls} style={inputStyle} value={urgentReason} onChange={(e) => setUrgentReason(e.target.value)}
+                    placeholder="เช่น แคมเปญเลื่อนขึ้นมาเปิดพรุ่งนี้ ต้องใช้ภาพก่อน 10 โมง" />
+                </Field>
+              )}
               <Field label="วัตถุประสงค์ของชิ้นงาน" required error={show("objective")} hint="ใช้ทำอะไร/ทำเพื่ออะไร/ใช้ที่ไหน เพื่อให้ออกแบบได้ตรงโจทย์มากขึ้น">
                 <textarea rows={3} className={inputCls} style={inputStyle} value={objective} onChange={(e) => setObjective(e.target.value)} />
+                {urgent && (
+                  <p className="mt-1.5 rounded-lg px-3 py-2 text-xs leading-relaxed" style={{ background: "var(--warning-bg)", color: urgentReason.trim() ? "var(--text-primary)" : "var(--text-muted)" }}
+                    aria-label="บรรทัดที่จะเพิ่มท้ายวัตถุประสงค์">
+                    {urgentLine(urgentReason.trim() || "…")}
+                  </p>
+                )}
               </Field>
               <Field label="Link ไฟล์งาน & ความต้องการและรายละเอียดของตัวงาน" required error={show("link")} hint="หากต้องการไฟล์ .PSD .AI และอื่นๆ โปรดระบุเป็นรายละเอียดเพิ่มเติม">
                 <textarea rows={3} className={inputCls} style={inputStyle} value={link} onChange={(e) => setLink(e.target.value)} />
@@ -947,6 +978,14 @@ function SubmittedDialog({ done, onClose }: {
             <dd className="num text-xl font-bold" style={{ color: "var(--text-primary)" }}>{fmt(Math.max(0, done.remaining))} <span className="text-xs font-medium">M Coin</span></dd>
           </div>
         </dl>
+
+        {task.priority === "Urgent" && (
+          <div className="mt-4 rounded-xl border px-4 py-3 text-sm leading-relaxed" role="alert"
+            style={{ background: "var(--warning-bg)", borderColor: "var(--warning-line)", color: "var(--text-primary)" }}>
+            <p className="font-bold" style={{ color: "var(--warning)" }}>🎫 งานด่วน (ตั๋วทอง) · ขั้นต่อไป</p>
+            <p>ติดต่อ <b>Lead Team Media</b> ตอนนี้ แจ้งว่ามีงานด่วนเข้า และตกลงกันก่อนเริ่มงาน</p>
+          </div>
+        )}
 
         {notion === "error" && (
           <p className="mt-4 text-sm" style={{ color: "var(--warning)" }}>
