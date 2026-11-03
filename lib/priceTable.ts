@@ -29,6 +29,8 @@ export interface PriceItem {
   unit: string;      // e.g. "General (1 img)"
   /** credit per piece for each request type; null = not available ("-") */
   credits: Record<RequestTypeKey, number | null>;
+  /** the "อื่นๆ" choice added by otherItem(), not a row of the sheet */
+  other?: boolean;
 }
 
 // Sheet columns (0-based): 0 category, 1 code, 2 name, 3 unit, 4 work time, 5..10 credits
@@ -84,6 +86,18 @@ export async function fetchPriceTable(): Promise<PriceItem[]> {
     } catch { /* ignore */ }
     throw err;
   }
+}
+
+/**
+ * "อื่นๆ": work not in the price table — counted as 0 until the design team prices it.
+ * Its code follows the table's last M number (M34 → M35).
+ */
+export function otherItem(items: PriceItem[]): PriceItem {
+  const last = Math.max(0, ...items.filter((p) => /^M\d+$/.test(p.code)).map((p) => parseInt(p.code.slice(1), 10)));
+  return {
+    code: `M${last + 1}`, category: "อื่นๆ", name: "อื่นๆ", unit: "ไม่มีในตาราง · ทีมดีไซน์ประเมินเครดิตให้", other: true,
+    credits: { new: 0, reuse: 0, addImage: 0, addVideo: 0, fixDesign: 0, fixBrief: 0 },
+  };
 }
 
 export function unitCredit(item: PriceItem | undefined, type: RequestTypeKey): number | null {
