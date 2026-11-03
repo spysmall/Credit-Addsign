@@ -15,7 +15,7 @@ import { fetchAllTaskUsage, fetchTeamActivity, TeamUsage } from "@/lib/sheetTask
 import { fetchLeaveHours } from "@/lib/sheetLeave";
 import { teamTotalCredits } from "@/lib/workdays";
 import {
-  PriceItem, REQUEST_TYPES, RequestTypeKey, fetchPriceTable, lineCredit, unitCredit, workTypeOf,
+  PriceItem, REQUEST_TYPES, RequestTypeKey, fetchPriceTable, lineCredit, unitCredit, otherItem, workTypeOf,
 } from "@/lib/priceTable";
 import {
   AssignedTask, COMPANY_OPTIONS, PRIORITIES, PROJECTS, TEAM_OPTIONS, WORK_TYPES,
@@ -47,11 +47,14 @@ function earliestStart(q: DesignerQueue | undefined, today: Date): Date {
 }
 
 /** designers still in the list (and in old requests) but not shown as choices: DS : Romram, DS M : Pe Phas */
-const HIDDEN_ASSIGNEES = new Set(["pattrawutthippapart@gmail.com", "phassarasi@gmail.com"]);
+// besides the super admin, who may pick the "อื่นๆ" line (work not in the price table): Lead Media (ภัส)
+const OTHER_ITEM_USERS = new Set(["phassarasi@gmail.com"]);
+const HIDDEN_ASSIGNEES = new Set(["pattrawutthippapart@gmail.com", "phassarasi@gmail.com", "kirtsana.assawamakin@gmail.com"]);
+const lineName = (item: PriceItem, l: LineDraft) => (item.other ? `อื่นๆ: ${l.note?.trim() ?? ""}` : item.name);
 const urgentLine = (reason: string) => `⚡ งานด่วน (ตั๋วทอง) · เหตุผลที่แทรกงาน: ${reason}`;
 const MAX_BYTES = 100 * 1024 * 1024;
 
-interface LineDraft { id: number; code: string; requestType: RequestTypeKey; qty: number }
+interface LineDraft { id: number; code: string; requestType: RequestTypeKey; qty: number; note?: string }
 
 const fmt = (n: number) => (Math.round(n * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const isoToday = () => {
@@ -217,7 +220,7 @@ function NewTaskForm() {
       setUsage(use);
       setLeave(lv);
       setActivity(act);
-      if (pt) setPrices(pt); else setPriceError(true);
+      if (pt) setPrices([...pt, otherItem(pt)]); else setPriceError(true);
       setLoadingData(false);
     });
     return () => { alive = false; };
@@ -254,6 +257,7 @@ function NewTaskForm() {
   }, [defaultTeam]);
 
   // ── derived ──
+  const canUseOther = isSuperAdmin || OTHER_ITEM_USERS.has(user.email.trim().toLowerCase());
   const priceByCode = useMemo(() => new Map(prices.map((p) => [p.code, p])), [prices]);
 
   // task title is saved as "[Project, Project] name"
@@ -281,7 +285,7 @@ function NewTaskForm() {
       const item = priceByCode.get(l.code);
       if (!item || !(l.qty > 0)) return "";
       const rt = REQUEST_TYPES.find((r) => r.key === l.requestType)?.label ?? "";
-      return `• ${item.name} (${rt}) × ${l.qty} ชิ้น`;
+      return `• ${lineName(item, l)} (${rt}) × ${l.qty} ชิ้น`;
     })
     .filter(Boolean)
     .join("\n");
@@ -289,7 +293,7 @@ function NewTaskForm() {
   const summary = summaryEdited ? summaryDraft : autoSummary;
 
   // work types: auto-picked from the lines, user can add extras or switch auto ones off
-  const autoTypes = [...new Set(lines.map((l) => (l.code ? workTypeOf(l.code) : "")).filter(Boolean))];
+  const autoTypes = [...new Set(lines.map((l) => (!l.code ? "" : priceByCode.get(l.code)?.other ? "Other" : workTypeOf(l.code))).filter(Boolean))];
   const workTypes = [...new Set([...autoTypes.filter((t) => !typesOff.includes(t)), ...typesExtra])];
   const toggleType = (t: string) => {
     if (workTypes.includes(t)) {
@@ -305,6 +309,7 @@ function NewTaskForm() {
   const lineErrors = lines.map((l) => {
     const item = priceByCode.get(l.code);
     if (!item) return "เลือกงานจากตารางราคา";
+    if (item.other && !l.note?.trim()) return "พิมพ์ว่างานนี้คืออะไร";
     if (unitCredit(item, l.requestType) === null) return "งานนี้ไม่มีประเภทการขอที่เลือก";
     if (!(l.qty > 0)) return "จำนวนต้องมากกว่า 0";
     return "";
@@ -402,7 +407,8 @@ function NewTaskForm() {
     setCreatedBy({ email: t.createdByEmail ?? "", name: t.createdBy });
     setOwner(t.ownerEmail ? people.find((p) => p.email === t.ownerEmail) ?? { email: t.ownerEmail, name: t.owner } : me);
     setTeamCreator(t.teamCreator); setCompany(t.company);
-    setLines(t.lines.map((l) => ({ id: nextLineId.current++, code: l.code, requestType: l.requestType, qty: l.qty })));
+    setLines(t.lines.map((l) => ({ id: nextLineId.current++, code: l.code, requestType: l.requestType, qty: l.qty,
+      note: l.name.startsWith("อื่นๆ: ") ? l.name.slice("อื่นๆ: ".length) : undefined })));
     setTypesExtra(t.workTypes); setTypesOff([]);
     setSummaryDraft(t.summary); setSummaryEdited(true);
     // the urgent line was appended on save; edit the objective without it
@@ -444,7 +450,7 @@ function NewTaskForm() {
       lines: lines.map((l, i) => {
         const item = priceByCode.get(l.code)!;
         return {
-          code: l.code, name: item.name, requestType: l.requestType, qty: l.qty,
+          code: l.code, name: lineName(item, l), requestType: l.requestType, qty: l.qty,
           unitCredit: unitCredit(item, l.requestType) ?? 0, credit: lineCredits[i],
         };
       }),
@@ -715,10 +721,18 @@ function NewTaskForm() {
                       <div className="flex items-start gap-2">
                         <div className="flex-1 min-w-0">
                           <label className="block text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>รายการที่ {i + 1} · งาน</label>
-                          <PriceCombobox items={prices} value={l.code} invalid={tried && !!lineErrors[i]}
+                          <PriceCombobox items={canUseOther ? prices : prices.filter((p) => !p.other || p.code === l.code)} value={l.code} invalid={tried && !!lineErrors[i]}
                             onChange={(code) => updateLine(l.id, { code })} disabled={priceError || loadingData}
                             placeholder={loadingData ? "กำลังโหลดตารางราคา…" : "พิมพ์ค้นหางาน เช่น แบนเนอร์, banner, โลโก้, M3"}
                             inputClassName={inputCls} inputStyle={inputStyle} />
+                          {item?.other && (
+                            <>
+                              <input value={l.note ?? ""} onChange={(e) => updateLine(l.id, { note: e.target.value })}
+                                placeholder="งานนี้คืออะไร เช่น ทำสติกเกอร์ LINE 8 แบบ" aria-label="รายละเอียดงานอื่นๆ"
+                                className={`${inputCls} mt-2`} style={inputStyle} />
+                              <p className="text-xs mt-1.5" style={{ color: "var(--text-muted)" }}>งานที่ไม่มีในตารางราคา · นับเป็น 0 M Coin ไว้ก่อน ทีมดีไซน์จะประเมินเครดิตให้ทีหลัง</p>
+                            </>
+                          )}
                         </div>
                         {lines.length > 1 && (
                           <button type="button" aria-label={`ลบรายการที่ ${i + 1}`} onClick={() => setLines((ls) => ls.filter((x) => x.id !== l.id))}
