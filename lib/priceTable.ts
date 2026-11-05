@@ -13,13 +13,22 @@ const CACHE_KEY      = "credit-price-table-v1";
 export type RequestTypeKey =
   | "new" | "reuse" | "addImage" | "addVideo" | "fixDesign" | "fixBrief";
 
-export const REQUEST_TYPES: { key: RequestTypeKey; label: string; hint: string; pct: string }[] = [
-  { key: "new",       label: "ออกแบบใหม่",       hint: "ภาพ/วิดีโอ (ใหม่)",       pct: "100%" },
-  { key: "reuse",     label: "ใช้ของเดิม",       hint: "ออกแบบโดยใช้ของเดิม",     pct: "50%"  },
-  { key: "addImage",  label: "ขอเพิ่มภาพ",       hint: "ขนาด/ภาษา",               pct: "15%"  },
-  { key: "addVideo",  label: "ขอเพิ่มวิดีโอ",    hint: "ขนาด/ภาษา",               pct: "50%"  },
-  { key: "fixDesign", label: "ปรับแก้ (ดีไซน์)", hint: "แก้ตัวงานดีไซน์",         pct: "25%"  },
-  { key: "fixBrief",  label: "ปรับแก้ (เปลี่ยนบรีฟ)", hint: "เปลี่ยนบรีฟใหม่",   pct: "100%" },
+/** groups shown as columns in the request-type picker */
+export const REQUEST_GROUPS: { key: "new" | "extend" | "fix"; label: string }[] = [
+  { key: "new",    label: "งานใหม่" },
+  { key: "extend", label: "ต่อยอดจากงานที่มี" },
+  { key: "fix",    label: "แก้งานที่ส่งแล้ว" },
+];
+
+export const REQUEST_TYPES: {
+  key: RequestTypeKey; label: string; hint: string; pct: string; group: (typeof REQUEST_GROUPS)[number]["key"];
+}[] = [
+  { key: "new",       label: "ออกแบบใหม่",       hint: "ออกแบบใหม่ทั้งหมด ยังไม่เคยมีมาก่อน",               pct: "100%", group: "new" },
+  { key: "reuse",     label: "ใช้ของเดิม",       hint: "เอางานที่มีอยู่แล้วมาปรับเป็นชิ้นใหม่",               pct: "50%",  group: "new" },
+  { key: "addImage",  label: "ขอเพิ่มภาพ",       hint: "ภาพที่ทำเสร็จแล้ว ขอเพิ่มขนาดหรือภาษา",              pct: "15%",  group: "extend" },
+  { key: "addVideo",  label: "ขอเพิ่มวิดีโอ",    hint: "วิดีโอที่ทำเสร็จแล้ว ขอเพิ่มขนาดหรือภาษา",            pct: "50%",  group: "extend" },
+  { key: "fixDesign", label: "ปรับแก้ (ดีไซน์)", hint: "แก้เล็กน้อยในดีไซน์เดิม บรีฟไม่เปลี่ยน",              pct: "25%",  group: "fix" },
+  { key: "fixBrief",  label: "ปรับแก้ (เปลี่ยนบรีฟ)", hint: "เปลี่ยนบรีฟ ทำใหม่ตามแนวทางใหม่",              pct: "100%", group: "fix" },
 ];
 
 export interface PriceItem {
