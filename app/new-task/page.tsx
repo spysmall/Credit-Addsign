@@ -15,7 +15,7 @@ import { fetchAllTaskUsage, fetchTeamActivity, TeamUsage } from "@/lib/sheetTask
 import { fetchLeaveHours } from "@/lib/sheetLeave";
 import { teamTotalCredits } from "@/lib/workdays";
 import {
-  PriceItem, REQUEST_TYPES, RequestTypeKey, fetchPriceTable, lineCredit, unitCredit, otherItem, workTypeOf,
+  PriceItem, REQUEST_GROUPS, REQUEST_TYPES, RequestTypeKey, fetchPriceTable, lineCredit, unitCredit, otherItem, workTypeOf,
 } from "@/lib/priceTable";
 import {
   AssignedTask, COMPANY_OPTIONS, PRIORITIES, PROJECTS, TEAM_OPTIONS, WORK_TYPES,
@@ -743,23 +743,33 @@ function NewTaskForm() {
 
                       <div>
                         <p className="text-xs font-medium mb-1.5" style={{ color: "var(--text-muted)" }}>ประเภทการขอ</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {REQUEST_TYPES.map((rt) => {
-                            const unit = unitCredit(item, rt.key);
-                            const disabled = !item || unit === null;
-                            const active = l.requestType === rt.key && !disabled;
-                            return (
-                              <button type="button" key={rt.key} disabled={disabled} aria-pressed={active}
-                                title={disabled && item ? "งานนี้ไม่มีให้ขอแบบนี้" : rt.hint}
-                                onClick={() => updateLine(l.id, { requestType: rt.key })}
-                                className="rounded-lg border px-3 min-h-10 sm:min-h-0 sm:py-1.5 text-xs font-semibold transition-all disabled:opacity-35 disabled:cursor-not-allowed"
-                                style={active
-                                  ? { background: "var(--accent-strong)", borderColor: "var(--accent-strong)", color: "#fff" }
-                                  : { background: "var(--bg-card)", borderColor: "var(--border)", color: "var(--text-secondary)" }}>
-                                {rt.label}{unit !== null && item ? <span className="opacity-70"> · {fmt(unit)}</span> : null}
-                              </button>
-                            );
-                          })}
+                        <div role="radiogroup" aria-label={`ประเภทการขอ รายการที่ ${i + 1}`} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {REQUEST_GROUPS.map((g) => (
+                            <div key={g.key} className="flex flex-col gap-1.5">
+                              <p className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>{g.label}</p>
+                              {REQUEST_TYPES.filter((rt) => rt.group === g.key).map((rt) => {
+                                const unit = unitCredit(item, rt.key);
+                                const disabled = !item || unit === null;
+                                const active = l.requestType === rt.key && !disabled;
+                                return (
+                                  <button type="button" key={rt.key} role="radio" disabled={disabled} aria-checked={active}
+                                    onClick={() => updateLine(l.id, { requestType: rt.key })}
+                                    className="rounded-xl border px-3 py-2 text-left flex flex-col gap-0.5 transition-all hover:border-[var(--text-muted)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-[var(--border)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
+                                    style={active
+                                      ? { background: "var(--accent-light)", borderColor: "var(--accent-strong)", boxShadow: "inset 0 0 0 1px var(--accent-strong)" }
+                                      : { background: "var(--bg-card)", borderColor: "var(--border)" }}>
+                                    <span className="flex items-baseline justify-between gap-2">
+                                      <span className="text-[13px] font-semibold" style={{ color: active ? "var(--accent-strong)" : "var(--text-primary)" }}>{rt.label}</span>
+                                      {unit !== null && item ? <span className="num text-xs font-semibold shrink-0" style={{ color: active ? "var(--accent-strong)" : "var(--text-secondary)" }}>{fmt(unit)}</span> : null}
+                                    </span>
+                                    <span className="text-[11px] leading-snug" style={{ color: "var(--text-muted)" }}>
+                                      {disabled && item ? "งานนี้ขอแบบนี้ไม่ได้" : rt.hint}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ))}
                         </div>
                       </div>
 
