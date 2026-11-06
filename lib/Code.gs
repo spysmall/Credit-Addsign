@@ -304,7 +304,11 @@ function notionOptions_() {
   return out;
 }
 
-// Notion user id for an email, cached 10 min
+// "User ID Notion - Out Team in Media" tab: อีเมล + Notion User ID of everyone who works in Notion
+var NOTION_MEMBERS_CSV_URL = "https://docs.google.com/spreadsheets/d/1nHjuzBhl3cNjuAhVMzpylW5CQuT9PggzRsoNL-m0JXU/gviz/tq?tqx=out:csv&gid=445999363";
+
+// Notion user id for an email, cached 10 min.
+// Notion's /users lists only workspace members (guests are missing), so the member sheet fills the rest.
 function notionUserId_(email) {
   if (!email) return null;
   var cache = CacheService.getScriptCache();
@@ -313,6 +317,20 @@ function notionUserId_(email) {
   if (hit) map = JSON.parse(hit);
   else {
     map = {};
+    try {
+      var rows = Utilities.parseCsv(UrlFetchApp.fetch(NOTION_MEMBERS_CSV_URL).getContentText());
+      var h = rows[0] || [];
+      var ei = -1, ii = -1;
+      h.forEach(function (x, i) {
+        var s = String(x).trim();
+        if (ei < 0 && /^(อีเมล|email)/i.test(s)) ei = i;
+        if (/^notion user id$/i.test(s)) ii = i;
+      });
+      if (ei >= 0 && ii >= 0) rows.slice(1).forEach(function (r) {
+        var e = String(r[ei] || "").trim().toLowerCase(), id = String(r[ii] || "").trim();
+        if (e.indexOf("@") > 0 && /^[0-9a-f-]{32,36}$/i.test(id)) map[e] = id;
+      });
+    } catch (err) { /* sheet unreachable: Notion's own list below still works */ }
     var cursor = null;
     do {
       var r = notion_("get", "/users?page_size=100" + (cursor ? "&start_cursor=" + cursor : ""));
