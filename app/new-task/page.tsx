@@ -49,6 +49,9 @@ function earliestStart(q: DesignerQueue | undefined, today: Date): Date {
 /** designers still in the list (and in old requests) but not shown as choices: DS : Romram, DS M : Pe Phas */
 // besides the super admin, who may pick the "อื่นๆ" line (work not in the price table): Lead Media (ภัส)
 const OTHER_ITEM_USERS = new Set(["phassarasi@gmail.com"]);
+// lock "ทีมสร้างบรีฟงาน" to each person's own team(s) from the users sheet / Discord.
+// Off for now: some people were matched to the wrong team, so everyone may pick any team.
+const LOCK_TEAMS = false;
 const HIDDEN_ASSIGNEES = new Set(["pattrawutthippapart@gmail.com", "phassarasi@gmail.com", "kirtsana.assawamakin@gmail.com"]);
 const lineName = (item: PriceItem, l: LineDraft) => (item.other ? `อื่นๆ: ${l.note?.trim() ?? ""}` : item.name);
 const urgentLine = (reason: string) => `⚡ งานด่วน (ตั๋วทอง) · เหตุผลที่แทรกงาน: ${reason}`;
@@ -148,7 +151,7 @@ function NewTaskForm() {
   const [discordTeams, setDiscordTeams] = useState<string[] | null>(null); // null = still loading
   const [teamsFailed, setTeamsFailed] = useState(false); // list unreachable → fall back to picking freely
   useEffect(() => {
-    if (sheetTeam || isSuperAdmin) return;
+    if (!LOCK_TEAMS || sheetTeam || isSuperAdmin) return;
     let alive = true;
     fetchDiscordTeams().then((m) => {
       if (!alive) return;
@@ -161,10 +164,10 @@ function NewTaskForm() {
     }).catch(() => { if (alive) { setDiscordTeams([]); setTeamsFailed(true); } });
     return () => { alive = false; };
   }, [sheetTeam, isSuperAdmin, user.email]);
-  const teamsLoading = !sheetTeam && !isSuperAdmin && discordTeams === null;
+  const teamsLoading = LOCK_TEAMS && !sheetTeam && !isSuperAdmin && discordTeams === null;
   // signed-in person whose team is not known: the form is closed for them
-  const noTeam = !sheetTeam && !isSuperAdmin && !teamsFailed && discordTeams?.length === 0;
-  const myTeams = useMemo(() => (isSuperAdmin ? [] : sheetTeam ? [sheetTeam] : discordTeams ?? []), [isSuperAdmin, sheetTeam, discordTeams]);
+  const noTeam = LOCK_TEAMS && !sheetTeam && !isSuperAdmin && !teamsFailed && discordTeams?.length === 0;
+  const myTeams = useMemo(() => (!LOCK_TEAMS || isSuperAdmin ? [] : sheetTeam ? [sheetTeam] : discordTeams ?? []), [isSuperAdmin, sheetTeam, discordTeams]);
   const [company, setCompany]       = useState("");
   const [lines, setLines]           = useState<LineDraft[]>([{ id: 1, code: "", requestType: "new", qty: 1 }]);
   const [typesExtra, setTypesExtra] = useState<string[]>([]);
