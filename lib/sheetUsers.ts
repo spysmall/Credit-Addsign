@@ -107,10 +107,14 @@ const MEMBERS_GID = "445999363";
  * An explicit "ทีม" column in the tab (labels, comma-separated) always wins over this guess.
  */
 const PREFIX_TEAMS: Record<string, string[]> = {
-  GP: ["GP"],
-  AGX: ["AGX-Biz"],
+  GP: ["GP", "Commu"], // GP and Commu share one credit pool
+  SR: ["GP", "Commu"],
+  PM: ["GP", "Commu"],
+  AGX: ["AGX-Biz", "AGX-GS"],
   HOF: ["HOF"],
   BD: ["BD-CB"],
+  BDM: ["BD-CB"],
+  AE: ["BD-CB"],
   MK: ["MKT-Performance"],
   DS: ["Design"],
   "DS M": ["Design"],
@@ -223,6 +227,20 @@ export function briefTeamsFor(discord: Map<string, string[]>, email: string): st
   const e = email.trim().toLowerCase();
   const fromDiscord = discord.get(e) ?? [];
   return fromDiscord.length ? fromDiscord : EMAIL_DOMAIN_TEAMS[e.split("@")[1] ?? ""] ?? [];
+}
+
+/**
+ * Teams one person may create briefs for. The Notion member list ("User ID Notion - Out Team in Media",
+ * column "กลุ่ม") comes first; Discord roles / e-mail domain only fill in people it has no team for.
+ * [] when neither knows. Throws only when both lists are unreachable.
+ */
+export async function fetchBriefTeams(email: string): Promise<string[]> {
+  const e = email.trim().toLowerCase();
+  const [members, discord] = await Promise.allSettled([fetchMemberTeams(), fetchDiscordTeams()]);
+  if (members.status === "rejected" && discord.status === "rejected") throw members.reason;
+  const fromMembers = members.status === "fulfilled" ? members.value.get(e) ?? [] : [];
+  if (fromMembers.length) return fromMembers;
+  return briefTeamsFor(discord.status === "fulfilled" ? discord.value : new Map(), e);
 }
 
 export interface Designer { email: string; name: string; notionId?: string }

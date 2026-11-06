@@ -8,7 +8,7 @@ import AssignGate, { AssignTabs, useAssignUser } from "@/components/AssignGate";
 import { DesignerQueue, NOTION_ENABLED, fetchDesignerLoad, pushTaskToNotion } from "@/lib/notionBridge";
 import { getHolidaysForMonth } from "@/lib/holidays";
 import { getSavedTeam, saveTeam } from "@/lib/assignSession";
-import { Designer, briefTeamsFor, fetchDiscordTeams, fetchMultimediaDesigners } from "@/lib/sheetUsers";
+import { Designer, fetchBriefTeams, fetchMultimediaDesigners } from "@/lib/sheetUsers";
 import { loadDistConfig, DistConfig } from "@/lib/distribution";
 import { fetchDistFromSheet } from "@/lib/sheetDistribution";
 import { fetchAllTaskUsage, fetchTeamActivity, TeamUsage } from "@/lib/sheetTasks";
@@ -49,8 +49,8 @@ function earliestStart(q: DesignerQueue | undefined, today: Date): Date {
 /** designers still in the list (and in old requests) but not shown as choices: DS : Romram, DS M : Pe Phas */
 // besides the super admin, who may pick the "อื่นๆ" line (work not in the price table): Lead Media (ภัส)
 const OTHER_ITEM_USERS = new Set(["phassarasi@gmail.com"]);
-// lock "ทีมสร้างบรีฟงาน" to each person's own team(s) from the users sheet / Discord.
-// Off for now: some people were matched to the wrong team, so everyone may pick any team.
+// lock "ทีมสร้างบรีฟงาน" to each person's own team(s) — see fetchBriefTeams (Notion member list first).
+// Off until the Notion member list covers everyone; until then anyone may pick any team.
 const LOCK_TEAMS = false;
 const HIDDEN_ASSIGNEES = new Set(["pattrawutthippapart@gmail.com", "phassarasi@gmail.com", "kirtsana.assawamakin@gmail.com"]);
 const lineName = (item: PriceItem, l: LineDraft) => (item.other ? `อื่นๆ: ${l.note?.trim() ?? ""}` : item.name);
@@ -146,16 +146,16 @@ function NewTaskForm() {
   }, [designers, load, assignee?.email]); // eslint-disable-line react-hooks/exhaustive-deps
   const ownerPeople = useMemo(() => ownerOrder(people, me), [people, me.email, me.name, tasksVersion]); // eslint-disable-line react-hooks/exhaustive-deps
   const [teamCreator, setTeamCreator] = useState(defaultTeam);
-  // teams this person may create briefs for: the users sheet's "ทีม" column wins, else their Discord roles.
+  // teams this person may create briefs for: the users sheet's "ทีม" column wins, else the Notion member
+  // list's "กลุ่ม" column, else their Discord roles.
   // [] = unknown → they cannot create briefs until the design team adds them. Super admins are never limited.
   const [discordTeams, setDiscordTeams] = useState<string[] | null>(null); // null = still loading
   const [teamsFailed, setTeamsFailed] = useState(false); // list unreachable → fall back to picking freely
   useEffect(() => {
     if (!LOCK_TEAMS || sheetTeam || isSuperAdmin) return;
     let alive = true;
-    fetchDiscordTeams().then((m) => {
+    fetchBriefTeams(user.email).then((teams) => {
       if (!alive) return;
-      const teams = briefTeamsFor(m, user.email);
       setDiscordTeams(teams);
       // keep the picked team inside their teams (one team → picked for them); an opened edit keeps its own
       if (!new URLSearchParams(window.location.search).get("edit")) {
