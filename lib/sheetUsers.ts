@@ -8,6 +8,25 @@ import { TEAM_OPTIONS } from "./taskAssign";
 const USERS_SHEET_ID = "1nHjuzBhl3cNjuAhVMzpylW5CQuT9PggzRsoNL-m0JXU";
 const USERS_GID      = "1388053801";
 
+/**
+ * Extra sign-in e-mails → the person's main e-mail. The extra address takes the main one's name and teams,
+ * even when the Notion member list knows it under another name ("BD : Kate" → "AGX : kate").
+ * The extra address must also be in the allowlist tab to sign in.
+ */
+const LOGIN_ALIASES: Record<string, string> = {
+  "panadda.work09@gmail.com": "panadda.b@agenixteam.com", // AGX : kate
+  "napatra.ari@gmail.com": "napatra.a@agenixteam.com",    // AGX : Ploy
+};
+
+/** Copies each main e-mail's entry onto its extra sign-in e-mails (the main entry wins) */
+function withAliases<T>(m: Map<string, T>): Map<string, T> {
+  for (const [alias, main] of Object.entries(LOGIN_ALIASES)) {
+    const v = m.get(main);
+    if (v !== undefined) m.set(alias, v);
+  }
+  return m;
+}
+
 export interface AllowedUser {
   /** display name in the "ทีม : ชื่อ" form (see withTeamNames), else ชื่อเล่น / global_name / Username */
   name?: string;
@@ -89,8 +108,8 @@ async function withTeamNames(users: Map<string, AllowedUser>): Promise<Map<strin
     }
     return out;
   };
-  const fromNotion = names(notion, /^(อีเมล|email)/i, [/^ชื่อ$/]);
-  const fromDiscord = names(discord, /^(อีเมล|email)/i, [/^ชื่อในเซิร์ฟเวอร์$/, /^ชื่อที่แสดง$/]);
+  const fromNotion = withAliases(names(notion, /^(อีเมล|email)/i, [/^ชื่อ$/]));
+  const fromDiscord = withAliases(names(discord, /^(อีเมล|email)/i, [/^ชื่อในเซิร์ฟเวอร์$/, /^ชื่อที่แสดง$/]));
   const teams = new Map<string, string[]>();
   if (discord.length) for (const [e, t] of parseDiscordTeams(discord)) teams.set(e, t);
 
@@ -152,7 +171,7 @@ export async function fetchMemberTeams(): Promise<Map<string, string[]>> {
     if (teams.length === 0 && groupIdx >= 0) teams = PREFIX_TEAMS[(r[groupIdx] ?? "").trim().toUpperCase()] ?? [];
     out.set(email, [...new Set([...(out.get(email) ?? []), ...teams])]);
   }
-  return out;
+  return withAliases(out);
 }
 
 // ── Teams from the "[New] User ID Discord - Out Team" tab (Discord roles) ──
@@ -221,7 +240,7 @@ function parseDiscordTeams([headers, ...rows]: string[][]): Map<string, string[]
     }
     out.set(email, [...new Set([...(out.get(email) ?? []), ...teams])]);
   }
-  return out;
+  return withAliases(out);
 }
 
 /** Company e-mail domains that tell the team on their own (for people missing from the Discord tab) */
