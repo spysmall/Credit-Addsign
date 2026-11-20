@@ -25,7 +25,7 @@ import {
 const THAI_MONTHS_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const MAX_FILES = 20;
 /** a team may go this far below zero; past it a request is refused */
-const OVERDRAFT_LIMIT = 50;
+const OVERDRAFT_LIMIT = 80;
 /** Urgent = a "ตั๋วทอง" queue jump: its reason is added to the end of the objective sent to Notion */
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const isWorkday = (d: Date) =>
