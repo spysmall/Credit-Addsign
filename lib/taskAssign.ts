@@ -12,7 +12,7 @@ import { fetchWebTasks, saveTaskToSheet } from "./sheetWebTasks";
 export const PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
 
 export const PROJECTS = [
-  "TR", "Infestation/WarZTH", "CB-Revo", "CBM-TH", "CBM-SEA", "CBPC-TH", "CBPC-SEA",
+  "TR", "TOSM", "Infestation/WarZTH", "CB-Revo", "CBM-TH", "CBM-SEA", "CBPC-TH", "CBPC-SEA",
   "CBRED", "iHAVE", "9yin", "Z4", "Z4M", "GE", "AUDD", "Aztek", "FOW", "KS", "Other",
 ];
 
