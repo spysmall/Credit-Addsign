@@ -153,7 +153,7 @@ export async function fetchMemberTeams(): Promise<Map<string, string[]>> {
 // ── Teams from the "[New] User ID Discord - Out Team" tab (Discord roles) ──
 const DISCORD_GID = "1381351958";
 
-/** Discord "ทีม" role → "Task Team Creator" labels. Roles not listed here (ECB, BD, CS, …) say nothing. */
+/** Discord "ทีม" role → "Task Team Creator" labels. Roles not listed here (ECB, …) say nothing. */
 const DISCORD_TEAMS: Record<string, string[]> = {
   agenix: ["AGX-Biz", "AGX-GS"],
   mkt: ["MKT-Performance"],
@@ -167,6 +167,7 @@ const DISCORD_TEAMS: Record<string, string[]> = {
   "crit dmg": ["CDM"],
   bd: ["BD-CB"],
   "bd & commu": ["BD-CB"],
+  "cs sea": ["Commu"], // CM / CSCM / CS SEA people count as Commu
 };
 
 /** Prefix of the server name ("💜GP (Lead) : Jenny", "AGX : Ploy") → labels; used when the roles say nothing */
@@ -174,6 +175,7 @@ const NAME_PREFIX_TEAMS: Record<string, string[]> = {
   GP: ["GP", "Commu"], // GP and Commu share one credit pool
   SR: ["GP", "Commu"],
   PM: ["GP", "Commu"],
+  CS: ["Commu"], // "CS SEA : Ron"
   AGX: ["AGX-Biz", "AGX-GS"],
   CDM: ["CDM"],
   BD: ["BD-CB"],
