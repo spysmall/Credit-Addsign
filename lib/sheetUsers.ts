@@ -43,6 +43,11 @@ export async function fetchAllowedUsers(): Promise<Map<string, AllowedUser>> {
   return withTeamNames(out);
 }
 
+/** Fixed names for shared mailboxes, which several Discord rows list (the first row's name would be wrong) */
+const FIXED_NAMES: Record<string, string> = {
+  "community.team.exe@gmail.com": "Commu : KALAKK", // EXE community team, shared by the CS SEA group
+};
+
 /** "GP:BEW", "💛GP  :  Bright" → "GP : BEW", "GP : Bright"; "" when the name has no "ทีม : ชื่อ" form */
 function teamName(raw: string): string {
   const s = raw.replace(/^[^\p{L}\p{N}(\[]+/u, "").replace(/\s+/g, " ").trim();
@@ -92,7 +97,7 @@ async function withTeamNames(users: Map<string, AllowedUser>): Promise<Map<strin
   for (const [email, u] of users) {
     const own = u.team ? [u.team] : briefTeamsFor(teams, email);
     const prefix = own.length ? NAME_PREFIX[own[0]] : undefined;
-    const name = fromNotion.get(email) ?? fromDiscord.get(email) ?? (teamName(u.name ?? "")
+    const name = FIXED_NAMES[email] ?? fromNotion.get(email) ?? fromDiscord.get(email) ?? (teamName(u.name ?? "")
       || (prefix && u.name ? `${prefix} : ${u.name}` : u.name));
     users.set(email, { ...u, name });
   }
