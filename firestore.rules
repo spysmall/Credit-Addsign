@@ -1,0 +1,41 @@
+rules_version = '2';
+
+// Multimedia Credit — who may read and write what.
+// allowedUsers is copied from the users sheet by the Apps Script (lib/Code.gs → syncAllowedUsers),
+// which writes with the owner's Google credentials and so is not limited by these rules.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+    function isSuperAdmin() {
+      return signedIn() && myEmail() in ['pattrawutthippapart@gmail.com'];
+    }
+    function isAllowed() {
+      return signedIn() && (isSuperAdmin()
+        || exists(/databases/$(database)/documents/allowedUsers/$(myEmail())));
+    }
+
+    // the allowlist: everyone may check their own entry, only the Apps Script writes it
+    match /allowedUsers/{email} {
+      allow read: if signedIn() && (email == myEmail() || isSuperAdmin());
+      allow write: if false;
+    }
+
+    // requests submitted on the web — every allowed user sees all of them (credit pools are shared)
+    match /tasks/{taskId} {
+      allow read: if isAllowed();
+      allow create: if isAllowed()
+        && request.resource.data.id == taskId
+        && request.resource.data.creatorEmail == myEmail();
+      allow update: if isAllowed()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.creatorEmail == resource.data.creatorEmail;
+      allow delete: if false;
+    }
+  }
+}

@@ -1,9 +1,8 @@
 name: Auto Sync Remaining Credit
 
+# The schedule is off: the site now needs a Google sign-in, which a headless browser cannot do.
+# The Dashboard still auto-syncs on Fridays from 10:00 when a super admin opens it.
 on:
-  schedule:
-    # Every Friday 10:00 ICT (UTC+7) = 03:00 UTC
-    - cron: "0 3 * * 5"
   workflow_dispatch:
 
 jobs:

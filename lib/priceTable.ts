@@ -1,13 +1,12 @@
 /**
- * Credit price table, read-only from the "ตารางราคา" Google Sheet via the
- * public gviz CSV endpoint (same approach as lib/sheetTasks.ts).
+ * Credit price table, read-only from the "ตารางราคา" Google Sheet through the
+ * Apps Script (lib/scriptApi.ts → fetchSheetCsv), which checks the caller's sign-in.
  * The last successful fetch is cached in localStorage as an offline fallback.
  */
 
 import { parseCSV } from "./csv";
+import { fetchSheetCsv } from "./scriptApi";
 
-const PRICE_SHEET_ID = "1kLSiFsWjUO51agYd3rtpRjviL1S4zO6YYl12tV5zgXE";
-const PRICE_GID      = "338340518";
 const CACHE_KEY      = "credit-price-table-v1";
 
 export type RequestTypeKey =
@@ -81,10 +80,7 @@ const isOffered = (item: PriceItem) => !HIDDEN_PREFIXES.some((p) => item.code.st
 
 export async function fetchPriceTable(): Promise<PriceItem[]> {
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${PRICE_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${PRICE_GID}`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(String(res.status));
-    const items = parsePriceTable(await res.text());
+    const items = parsePriceTable(await fetchSheetCsv("price"));
     if (items.length === 0) throw new Error("empty");
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(items)); } catch { /* ignore */ }
     return items.filter(isOffered);

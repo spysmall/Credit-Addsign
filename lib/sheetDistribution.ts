@@ -6,9 +6,9 @@
  *   Type: Web App | Execute as: Me | Access: Anyone
  * Copy the Web App URL → set NEXT_PUBLIC_DIST_SCRIPT_URL in .env.local
  */
+import { callScript, fetchSheetCsv, forgetSheet } from "./scriptApi";
 
 const APPS_SCRIPT_URL = process.env.NEXT_PUBLIC_DIST_SCRIPT_URL ?? "";
-const SHEET_ID = "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY";
 
 /** RFC-4180 CSV parser — handles quoted fields with embedded newlines/commas */
 function parseCSVRobust(text: string): string[][] {
@@ -46,10 +46,7 @@ export async function fetchDistFromSheet(
 ): Promise<Record<string, number> | null> {
   const monthKey = `${year}-${month}`;
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Credit%20Distribution`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    const rows = parseCSVRobust(await res.text());
+    const rows = parseCSVRobust(await fetchSheetCsv("dist"));
     // Each row: [month, team_id, pct, updated_at]
     const matched = rows.filter((r) => r[0] === monthKey);
     if (matched.length === 0) return null;
@@ -68,13 +65,9 @@ export async function saveDistToSheet(
   // No Apps Script URL configured → localStorage-only mode, treat as success
   if (!APPS_SCRIPT_URL) return true;
   try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      // Use text/plain to avoid CORS preflight; Apps Script reads e.postData.contents
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ month: `${year}-${month}`, teams }),
-    });
-    return true;
+    const r = await callScript<{ ok?: boolean }>({ month: `${year}-${month}`, teams });
+    forgetSheet("dist");
+    return r.ok === true;
   } catch {
     return false;
   }
@@ -99,10 +92,7 @@ export async function fetchNoteFromSheet(
 
   // Always read via public CSV — gets the latest row correctly
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Note%20Plan`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    const rows = parseCSVRobust(await res.text());
+    const rows = parseCSVRobust(await fetchSheetCsv("note"));
     const match = rows.filter((r) => r[0] === monthKey).pop();
     return match ? match[1] ?? "" : null;
   } catch {
@@ -118,12 +108,9 @@ export async function saveNoteToSheet(
 ): Promise<boolean> {
   if (!APPS_SCRIPT_URL) return true;
   try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "saveNote", month: `${year}-${month}`, note }),
-    });
-    return true;
+    const r = await callScript<{ ok?: boolean }>({ action: "saveNote", month: `${year}-${month}`, note });
+    forgetSheet("note");
+    return r.ok === true;
   } catch {
     return false;
   }

@@ -78,56 +78,47 @@ function monthKey_(v) {
   return String(v);
 }
 
-// GET ?month=2026-7              → [{team_id, pct}, ...]
-// GET ?action=getNote&month=...  → {note: "..."}
-function doGet(e) {
-  var params = e.parameter || {};
-  var month  = params.month || "";
-  var action = params.action || "";
-
-  if (action === "notionStatus") {
-    var ids = String(params.ids || "").split(",").map(function (x) { return x.replace(/-/g, ""); })
-      .filter(function (x) { return /^[0-9a-f]{32}$/i.test(x); }).slice(0, 50);
-    try { return json_({ results: notionStatuses_(ids) }); }
-    catch (err) { return json_({ error: String(err.message || err) }); }
-  }
-
-  if (action === "designerLoad") {
-    try { return json_({ results: designerLoad_() }); }
-    catch (err) { return json_({ error: String(err.message || err) }); }
-  }
-
-  if (action === "getNote") {
-    var ns   = getNoteSheet();
-    var nd   = ns.getDataRange().getValues();
-    var note = "";
-    for (var i = 1; i < nd.length; i++) {
-      if (String(nd[i][0]) === month) { note = String(nd[i][1]); } // no break → last row wins
-    }
-    return ContentService
-      .createTextOutput(JSON.stringify({ note: note }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  // Default: distribution rows
-  var sheet  = getSheet();
-  var data   = sheet.getDataRange().getValues();
-  var result = [];
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === month) {
-      result.push({ team_id: String(data[i][1]), pct: Number(data[i][2]) });
-    }
-  }
-  return ContentService
-    .createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
+// Every request is a POST carrying a Firebase ID token (see "Security" below); GET is closed.
+function doGet() {
+  return json_({ ok: false, error: "unauthenticated" });
 }
 
 // POST body: { month, teams }           → save distribution %
 // POST body: { action:"saveNote", month, note } → save note
 // POST body: { action:"saveRemaining", month, rows } → save remaining-credit snapshot
 function doPost(e) {
-  var body = JSON.parse(e.postData.contents);
+  var body;
+  try { body = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, error: "bad request" }); }
+
+  // who is calling: a verified Google account on the allowlist, else nothing happens
+  var me = caller_(body.token);
+  if (!me) return json_({ ok: false, error: "unauthenticated" });
+  var admin = SUPER_ADMINS.indexOf(me) >= 0;
+  if (!admin && !isAllowed_(me)) return json_({ ok: false, error: "forbidden" });
+
+  // POST { action:"csv", sheet:<key> } → { ok, csv } — one whitelisted tab, read with the owner's access
+  if (body.action === "csv") {
+    if (!SHEETS.hasOwnProperty(body.sheet)) return json_({ ok: false, error: "unknown sheet" });
+    try { return json_({ ok: true, csv: cachedCsv_(body.sheet) }); }
+    catch (err) { return json_({ ok: false, error: String(err.message || err) }); }
+  }
+
+  if (body.action === "notionStatus") {
+    var ids = (Array.isArray(body.ids) ? body.ids : []).map(function (x) { return String(x).replace(/-/g, ""); })
+      .filter(function (x) { return /^[0-9a-f]{32}$/i.test(x); }).slice(0, 50);
+    try { return json_({ results: notionStatuses_(ids) }); }
+    catch (err) { return json_({ error: String(err.message || err) }); }
+  }
+
+  if (body.action === "designerLoad") {
+    try { return json_({ results: designerLoad_() }); }
+    catch (err) { return json_({ error: String(err.message || err) }); }
+  }
+
+  // credit plan, notes and the remaining snapshot change everyone's numbers → super admin only
+  if (!admin && (body.action === "saveRemaining" || body.action === "saveNote" || !body.action)) {
+    return json_({ ok: false, error: "forbidden" });
+  }
 
   // POST body: { action:"createNotionTask", task } → create the Notion page (once per task id)
   if (body.action === "createNotionTask") {
@@ -221,6 +212,7 @@ function doPost(e) {
       if (String(nd[i][0]) === body.month) { ns.deleteRow(i + 1); }
     }
     ns.appendRow([body.month, body.note || "", now]);
+    forgetCsv_("note");
     return ContentService
       .createTextOutput(JSON.stringify({ ok: true }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -239,6 +231,7 @@ function doPost(e) {
   for (var j = 0; j < teams.length; j++) {
     sheet.appendRow([month, teams[j].id, teams[j].pct, now]);
   }
+  forgetCsv_("dist");
 
   return ContentService
     .createTextOutput(JSON.stringify({ ok: true }))
@@ -304,9 +297,6 @@ function notionOptions_() {
   return out;
 }
 
-// "User ID Notion - Out Team in Media" tab: อีเมล + Notion User ID of everyone who works in Notion
-var NOTION_MEMBERS_CSV_URL = "https://docs.google.com/spreadsheets/d/1nHjuzBhl3cNjuAhVMzpylW5CQuT9PggzRsoNL-m0JXU/gviz/tq?tqx=out:csv&gid=445999363";
-
 // Notion user id for an email, cached 10 min.
 // Notion's /users lists only workspace members (guests are missing), so the member sheet fills the rest.
 function notionUserId_(email) {
@@ -318,7 +308,7 @@ function notionUserId_(email) {
   else {
     map = {};
     try {
-      var rows = Utilities.parseCsv(UrlFetchApp.fetch(NOTION_MEMBERS_CSV_URL).getContentText());
+      var rows = sheetValues_("members"); // "User ID Notion - Out Team in Media": อีเมล + Notion User ID
       var h = rows[0] || [];
       var ei = -1, ii = -1;
       h.forEach(function (x, i) {
@@ -450,4 +440,193 @@ function designerLoad_() {
   } while (cursor);
   cache.put("designer-load", JSON.stringify(out), 120);
   return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Firebase: copy the allowlist (users sheet → column Email) into Firestore "allowedUsers", which
+// firestore.rules checks before anyone may read or write requests. Runs every hour.
+//
+// Setup (once): put lib/appsscript.json in the project (Project Settings → "Show appsscript.json",
+// then paste), run installAllowedUsersTrigger() once from the editor and approve the permissions.
+// ─────────────────────────────────────────────────────────────────────────────
+
+var FIREBASE_PROJECT = "mm-credit-addsign";
+
+function installAllowedUsersTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === "syncAllowedUsers") ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("syncAllowedUsers").timeBased().everyHours(1).create();
+  syncAllowedUsers();
+}
+
+function syncAllowedUsers() {
+  var rows = sheetValues_("users");
+  var head = rows[0] || [];
+  var col = function (re) { for (var i = 0; i < head.length; i++) if (re.test(String(head[i]).trim())) return i; return -1; };
+  var emailIdx = col(/^email/i), nickIdx = col(/^ชื่อเล่น$/), teamIdx = col(/^(ทีม|team)$/i);
+  if (emailIdx < 0) throw new Error("users sheet has no Email column");
+
+  var wanted = {};
+  for (var r = 1; r < rows.length; r++) {
+    var email = String(rows[r][emailIdx] || "").trim().toLowerCase();
+    if (email.indexOf("@") < 0) continue;
+    wanted[email] = {
+      name: nickIdx >= 0 ? String(rows[r][nickIdx] || "").trim() : "",
+      team: teamIdx >= 0 ? String(rows[r][teamIdx] || "").trim() : "",
+    };
+  }
+  // a broken sheet must not lock everyone out
+  if (Object.keys(wanted).length === 0) throw new Error("users sheet returned no emails — nothing synced");
+
+  var base = "projects/" + FIREBASE_PROJECT + "/databases/(default)/documents";
+  var api = "https://firestore.googleapis.com/v1/";
+  var headers = { Authorization: "Bearer " + ScriptApp.getOAuthToken() };
+
+  // what is there now
+  var existing = {};
+  var pageToken = "";
+  do {
+    var res = UrlFetchApp.fetch(api + base + "/allowedUsers?pageSize=300&mask.fieldPaths=name" + (pageToken ? "&pageToken=" + pageToken : ""),
+      { headers: headers, muteHttpExceptions: true });
+    if (res.getResponseCode() >= 300) throw new Error("Firestore list: " + res.getContentText());
+    var page = JSON.parse(res.getContentText() || "{}");
+    (page.documents || []).forEach(function (d) { existing[decodeURIComponent(d.name.split("/").pop())] = true; });
+    pageToken = page.nextPageToken || "";
+  } while (pageToken);
+
+  // upsert everyone on the sheet, delete everyone who left it
+  var now = new Date().toISOString();
+  var writes = [];
+  Object.keys(wanted).forEach(function (email) {
+    writes.push({ update: {
+      name: base + "/allowedUsers/" + email,
+      fields: { email: { stringValue: email }, name: { stringValue: wanted[email].name }, team: { stringValue: wanted[email].team }, updatedAt: { stringValue: now } },
+    } });
+  });
+  Object.keys(existing).forEach(function (email) {
+    if (!wanted[email]) writes.push({ "delete": base + "/allowedUsers/" + email });
+  });
+  for (var i = 0; i < writes.length; i += 400) {
+    var commit = UrlFetchApp.fetch(api + base + ":commit", {
+      method: "post", contentType: "application/json", headers: headers, muteHttpExceptions: true,
+      payload: JSON.stringify({ writes: writes.slice(i, i + 400) }),
+    });
+    if (commit.getResponseCode() >= 300) throw new Error("Firestore commit: " + commit.getContentText());
+  }
+  Logger.log("allowedUsers synced: " + Object.keys(wanted).length + " emails");
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Security: the site sends the signed-in person's Firebase ID token with every request.
+// Google checks the token (accounts:lookup), then the e-mail must be on the users sheet allowlist.
+// The sheets themselves can then be shared with nobody: this script reads them as the owner.
+// ─────────────────────────────────────────────────────────────────────────────
+
+var FIREBASE_API_KEY = "AIzaSyBQmJXDLBcsIciI3LqFE0PYkqprnKFxJ8c"; // public web key (same as lib/firebase.ts)
+var SUPER_ADMINS = ["pattrawutthippapart@gmail.com"];              // same as lib/assignSession.ts
+
+// e-mail of the token's owner (lower-case), or null when the token is missing, forged or expired
+function caller_(token) {
+  if (typeof token !== "string" || token.length < 100 || token.length > 4096) return null;
+  var cache = CacheService.getScriptCache();
+  var key = "idt:" + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token));
+  var hit = cache.get(key);
+  if (hit) return hit === "-" ? null : hit;
+  var res = UrlFetchApp.fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=" + FIREBASE_API_KEY, {
+    method: "post", contentType: "application/json", payload: JSON.stringify({ idToken: token }), muteHttpExceptions: true,
+  });
+  var email = null;
+  if (res.getResponseCode() === 200) {
+    var u = (JSON.parse(res.getContentText() || "{}").users || [])[0];
+    if (u && u.email && u.emailVerified) email = String(u.email).trim().toLowerCase();
+  }
+  cache.put(key, email || "-", email ? 300 : 60); // ID tokens live 1 h; re-check every 5 min
+  return email;
+}
+
+// the users sheet's "Email" column, cached 5 min
+function isAllowed_(email) {
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get("allowed-emails");
+  var set;
+  if (hit) set = JSON.parse(hit);
+  else {
+    set = {};
+    var rows = sheetValues_("users"), head = rows[0] || [], ei = -1;
+    for (var i = 0; i < head.length; i++) if (/^email/i.test(String(head[i]).trim())) { ei = i; break; }
+    if (ei >= 0) rows.slice(1).forEach(function (r) {
+      var e = String(r[ei] || "").trim().toLowerCase();
+      if (e.indexOf("@") > 0) set[e] = 1;
+    });
+    try { cache.put("allowed-emails", JSON.stringify(set), 300); } catch (err) { /* too big to cache: read again next time */ }
+  }
+  return !!set[email];
+}
+
+// The only tabs the site may read (key → spreadsheet + tab). Anything else is refused.
+var SHEETS = {
+  users:     { id: "1nHjuzBhl3cNjuAhVMzpylW5CQuT9PggzRsoNL-m0JXU", gid: 1388053801 }, // User ID Discord - Out Team (allowlist)
+  members:   { id: "1nHjuzBhl3cNjuAhVMzpylW5CQuT9PggzRsoNL-m0JXU", gid: 445999363 },  // User ID Notion - Out Team in Media
+  discord:   { id: "1nHjuzBhl3cNjuAhVMzpylW5CQuT9PggzRsoNL-m0JXU", gid: 1381351958 }, // [New] User ID Discord
+  allTask:   { id: "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY", name: "[sum] All Task(in Notion)" },
+  taskUsage: { id: "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY", gid: 1206331278 },
+  dist:      { id: "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY", name: "Credit Distribution" },
+  note:      { id: "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY", name: "Note Plan" },
+  webTasks:  { id: "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY", name: "Web Tasks" },
+  leave:     { id: "1jIzyt15EL5DaODqTG-e7D2pSWbsqETG6gsq60yhR_zY", name: "leave" },
+  price:     { id: "1kLSiFsWjUO51agYd3rtpRjviL1S4zO6YYl12tV5zgXE", gid: 338340518 },
+};
+
+// the tab's cells as shown in the sheet ([] when the tab is gone)
+function sheetValues_(key) {
+  var s = SHEETS[key], ss = SpreadsheetApp.openById(s.id), sh = null;
+  if (s.name) sh = ss.getSheetByName(s.name);
+  else ss.getSheets().forEach(function (x) { if (x.getSheetId() === s.gid) sh = x; });
+  return sh ? sh.getDataRange().getDisplayValues() : [];
+}
+
+// every field quoted, like the public gviz CSV the site used to read
+function toCsv_(rows) {
+  return rows.map(function (r) {
+    return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(",");
+  }).join("\n");
+}
+
+// a tab as CSV, cached 60 s in pieces (a cache entry holds at most 100 KB)
+function cachedCsv_(key) {
+  var cache = CacheService.getScriptCache(), n = Number(cache.get("csv:" + key) || 0);
+  if (n > 0) {
+    var keys = [];
+    for (var i = 0; i < n; i++) keys.push("csv:" + key + ":" + i);
+    var got = cache.getAll(keys);
+    if (Object.keys(got).length === n) return keys.map(function (k) { return got[k]; }).join("");
+  }
+  var csv = toCsv_(sheetValues_(key)), parts = {}, size = 25000, count = 0;
+  for (var j = 0; j < csv.length; j += size) parts["csv:" + key + ":" + count++] = csv.slice(j, j + size);
+  try { cache.putAll(parts, 60); cache.put("csv:" + key, String(count), 60); } catch (err) { /* too big: serve uncached */ }
+  return csv;
+}
+
+function forgetCsv_(key) { CacheService.getScriptCache().remove("csv:" + key); }
+
+// Run once from the editor while the sheets are still public: compares what the site will now get
+// with the public gviz CSV it used to read, tab by tab. Look at the Execution log.
+function selfTestCsv() {
+  Object.keys(SHEETS).forEach(function (key) {
+    var s = SHEETS[key];
+    var url = "https://docs.google.com/spreadsheets/d/" + s.id + "/gviz/tq?tqx=out:csv&" + (s.name ? "sheet=" + encodeURIComponent(s.name) : "gid=" + s.gid);
+    var mine = Utilities.parseCsv(toCsv_(sheetValues_(key)));
+    var theirs;
+    try { theirs = Utilities.parseCsv(UrlFetchApp.fetch(url).getContentText()); } catch (err) { Logger.log(key + ": gviz unreachable (" + err + ")"); return; }
+    var diffs = [];
+    for (var r = 0; r < Math.max(mine.length, theirs.length) && diffs.length < 5; r++) {
+      var a = mine[r] || [], b = theirs[r] || [];
+      for (var c = 0; c < Math.max(a.length, b.length) && diffs.length < 5; c++) {
+        if (String(a[c] || "") !== String(b[c] || "")) diffs.push("row " + (r + 1) + " col " + (c + 1) + ": new=" + JSON.stringify(a[c] || "") + " old=" + JSON.stringify(b[c] || ""));
+      }
+    }
+    Logger.log(key + ": " + mine.length + " rows (gviz " + theirs.length + ")" + (diffs.length ? "\n  " + diffs.join("\n  ") : " — same"));
+  });
 }

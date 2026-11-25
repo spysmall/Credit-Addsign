@@ -3,6 +3,7 @@
  * "Remaining" Google Sheet tab via the same Apps Script web app used by
  * lib/sheetDistribution.ts. See lib/Code.gs for the doPost handler.
  */
+import { callScript } from "./scriptApi";
 
 const APPS_SCRIPT_URL = process.env.NEXT_PUBLIC_DIST_SCRIPT_URL ?? "";
 
@@ -25,12 +26,8 @@ export async function saveRemainingToSheet(
 ): Promise<boolean> {
   if (!APPS_SCRIPT_URL) return true;
   try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "saveRemaining", month: `${year}-${month}`, rows }),
-    });
-    return true;
+    const r = await callScript<{ ok?: boolean }>({ action: "saveRemaining", month: `${year}-${month}`, rows });
+    return r.ok === true;
   } catch {
     return false;
   }

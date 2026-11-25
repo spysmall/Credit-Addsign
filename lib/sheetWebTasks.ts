@@ -1,41 +1,44 @@
 /**
  * Shared store for tasks submitted on the web, so the submitter, the "สร้างโดย" person and the
- * task owner all see them on any device. Each task is one row in the "Web Tasks" tab of the
- * credit spreadsheet (written by the Apps Script in lib/Code.gs, read via the public gviz CSV).
+ * task owner all see them on any device: one document per task in the Firestore collection
+ * "tasks" (project mm-credit-addsign; access rules in firestore.rules).
+ *
+ * The older "Web Tasks" sheet tab is still read once per sign-in so requests saved there before
+ * the move to Firestore are carried over.
  */
+import { collection, doc, onSnapshot, setDoc } from "firebase/firestore";
+import { db } from "./firebase";
 import { parseCSV } from "./csv";
 import type { AssignedTask } from "./taskAssign";
+import { fetchSheetCsv } from "./scriptApi";
 
-const SHEET_ID = "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY";
-const TAB = "Web Tasks";
-// the beta site sets only NEXT_PUBLIC_TASKS_SCRIPT_URL, so it can share tasks without writing any other sheet
-const SCRIPT_URL = process.env.NEXT_PUBLIC_TASKS_SCRIPT_URL || process.env.NEXT_PUBLIC_DIST_SCRIPT_URL || "";
+const TASKS = "tasks";
 
-export const SHARED_TASKS_ENABLED = !!SCRIPT_URL;
-
-/** Insert or update the task's row (matched by id). Resolves false if the request could not be sent. */
+/** Insert or update the task's document. Resolves false if Firestore refused or was unreachable. */
 export async function saveTaskToSheet(task: AssignedTask): Promise<boolean> {
-  if (!SCRIPT_URL) return false;
   try {
-    await fetch(SCRIPT_URL, {
-      method: "POST",
-      // text/plain avoids a CORS preflight; Apps Script reads e.postData.contents
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "saveTask", task }),
-    });
+    // Firestore rejects `undefined` values; a JSON round-trip drops them
+    await setDoc(doc(db, TASKS, task.id), JSON.parse(JSON.stringify(task)));
     return true;
   } catch {
     return false;
   }
 }
 
-/** Every task in the shared tab. */
-export async function fetchWebTasks(): Promise<AssignedTask[]> {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(TAB)}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(String(res.status));
-  const rows = parseCSV(await res.text());
-  // gviz silently returns the first tab when "Web Tasks" doesn't exist yet → only trust a sheet with our header
+/** Live view of every shared task; returns the unsubscribe function. */
+export function subscribeWebTasks(onTasks: (tasks: AssignedTask[]) => void, onError?: (err: Error) => void): () => void {
+  return onSnapshot(
+    collection(db, TASKS),
+    (snap) => onTasks(snap.docs.map((d) => d.data() as AssignedTask).filter((t) => typeof t.id === "string" && t.year && t.month)),
+    (err) => onError?.(err),
+  );
+}
+
+// ── legacy: the "Web Tasks" tab of the credit spreadsheet (read-only, for carrying old rows over) ──
+
+export async function fetchLegacySheetTasks(): Promise<AssignedTask[]> {
+  const rows = parseCSV(await fetchSheetCsv("webTasks"));
+  // gviz silently returns the first tab when "Web Tasks" doesn't exist → only trust a sheet with our header
   const head = rows.findIndex((r) => r[0]?.trim().toLowerCase() === "id" && r.some((c) => c.trim().toLowerCase() === "json"));
   if (head < 0) return [];
   const col = rows[head].findIndex((c) => c.trim().toLowerCase() === "json");
