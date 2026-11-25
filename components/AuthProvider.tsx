@@ -137,19 +137,20 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
 
   // once allowed, follow the shared tasks live; the first snapshot also uploads what only this browser has
   const allowed = access.status === "allowed";
+  const myEmail = session?.email ?? "";
   useEffect(() => {
-    if (!allowed) return;
+    if (!allowed || !myEmail) return;
     let first = true;
     return subscribeWebTasks((tasks) => {
       if (mergeRemoteTasks(tasks) > 0) setTasksVersion((v) => v + 1);
       if (first) {
         first = false;
-        uploadMissingTasks(new Set(tasks.map((t) => t.id)))
+        uploadMissingTasks(new Set(tasks.map((t) => t.id)), myEmail)
           .then((n) => { if (n > 0) setTasksVersion((v) => v + 1); })
           .catch(() => {});
       }
     });
-  }, [allowed]);
+  }, [allowed, myEmail]);
 
   const signOut = useCallback(() => { void fbSignOut(auth); }, []);
 

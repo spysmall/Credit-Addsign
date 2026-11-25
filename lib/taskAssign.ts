@@ -189,14 +189,17 @@ export function mergeRemoteTasks(remote: AssignedTask[]): number {
 /**
  * Upload what only this browser knows about — tasks made before sharing existed, or carried over
  * from the old "Web Tasks" sheet — once the shared store's contents (`remoteIds`) are known.
- * Firestore rules only let the original submitter create a task, so others' rows are skipped there.
+ * Firestore rules only let the original submitter create a task, so only `myEmail`'s own tasks are
+ * sent (others' would be refused on every page load). Runs once per browser session.
  */
-export async function uploadMissingTasks(remoteIds: Set<string>): Promise<number> {
+export async function uploadMissingTasks(remoteIds: Set<string>, myEmail: string): Promise<number> {
+  const KEY = `credit-upload-done-${myEmail}`;
+  try { if (sessionStorage.getItem(KEY)) return 0; sessionStorage.setItem(KEY, "1"); } catch { /* no storage: run anyway */ }
   const legacy = await fetchLegacySheetTasks().catch(() => [] as AssignedTask[]);
   let merged = mergeRemoteTasks(legacy);
   for (const { year, month } of assignedMonths()) {
     for (const t of loadAssigned(year, month)) {
-      if (!remoteIds.has(t.id) && await saveTaskToSheet(t)) merged++;
+      if (t.creatorEmail === myEmail && !remoteIds.has(t.id) && await saveTaskToSheet(t)) merged++;
     }
   }
   return merged;
