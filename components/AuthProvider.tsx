@@ -7,6 +7,7 @@ import { AssignSession, clearSession, isSuperAdmin } from "@/lib/assignSession";
 import { auth } from "@/lib/firebase";
 import { subscribeWebTasks } from "@/lib/sheetWebTasks";
 import { fetchAllowedUsers } from "@/lib/sheetUsers";
+import { ScriptAuthError } from "@/lib/scriptApi";
 import { IS_BETA } from "@/lib/appEnv";
 import { mergeRemoteTasks, uploadMissingTasks } from "@/lib/taskAssign";
 
@@ -124,10 +125,12 @@ export default function AuthProvider({ header, children }: { header?: React.Reac
           ? { status: "allowed", team: u?.team, name: u?.name, people }
           : { status: "denied" });
       })
-      .catch(() => {
+      .catch((err) => {
         if (!alive) return;
         // a super admin must never be locked out by a sheet outage
-        setAccess(isSuperAdmin(session.email) ? { status: "allowed", people: [] } : { status: "error" });
+        if (isSuperAdmin(session.email)) setAccess({ status: "allowed", people: [] });
+        // the Apps Script itself said this e-mail is not on the allowlist
+        else setAccess(err instanceof ScriptAuthError ? { status: "denied" } : { status: "error" });
       });
     return () => { alive = false; };
   }, [session, retry]);

@@ -10,6 +10,7 @@ import { collection, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { parseCSV } from "./csv";
 import type { AssignedTask } from "./taskAssign";
+import { fetchSheetCsv } from "./scriptApi";
 
 const TASKS = "tasks";
 
@@ -34,13 +35,9 @@ export function subscribeWebTasks(onTasks: (tasks: AssignedTask[]) => void, onEr
 }
 
 // ── legacy: the "Web Tasks" tab of the credit spreadsheet (read-only, for carrying old rows over) ──
-const LEGACY_SHEET_ID = "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY";
 
 export async function fetchLegacySheetTasks(): Promise<AssignedTask[]> {
-  const url = `https://docs.google.com/spreadsheets/d/${LEGACY_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("Web Tasks")}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) return [];
-  const rows = parseCSV(await res.text());
+  const rows = parseCSV(await fetchSheetCsv("webTasks"));
   // gviz silently returns the first tab when "Web Tasks" doesn't exist → only trust a sheet with our header
   const head = rows.findIndex((r) => r[0]?.trim().toLowerCase() === "id" && r.some((c) => c.trim().toLowerCase() === "json"));
   if (head < 0) return [];

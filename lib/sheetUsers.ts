@@ -4,9 +4,8 @@
  */
 import { parseCSV } from "./csv";
 import { TEAM_OPTIONS } from "./taskAssign";
+import { fetchSheetCsv, type SheetKey } from "./scriptApi";
 
-const USERS_SHEET_ID = "1nHjuzBhl3cNjuAhVMzpylW5CQuT9PggzRsoNL-m0JXU";
-const USERS_GID      = "1388053801";
 
 /**
  * Extra sign-in e-mails → the person's main e-mail. The extra address takes the main one's name and teams,
@@ -35,10 +34,7 @@ export interface AllowedUser {
 }
 
 export async function fetchAllowedUsers(): Promise<Map<string, AllowedUser>> {
-  const url = `https://docs.google.com/spreadsheets/d/${USERS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${USERS_GID}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`users sheet ${res.status}`);
-  const [headers, ...rows] = parseCSV(await res.text());
+  const [headers, ...rows] = parseCSV(await fetchSheetCsv("users"));
   if (!headers) throw new Error("users sheet empty");
 
   const emailIdx = headers.findIndex((h) => /^email/i.test(h.trim()));
@@ -88,11 +84,8 @@ const NAME_PREFIX: Record<string, string> = {
  * Missing tabs only mean plainer names — never a failed sign-in.
  */
 async function withTeamNames(users: Map<string, AllowedUser>): Promise<Map<string, AllowedUser>> {
-  const tab = async (gid: string) => {
-    const res = await fetch(`https://docs.google.com/spreadsheets/d/${USERS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${gid}`, { cache: "no-store" });
-    return res.ok ? parseCSV(await res.text()) : [];
-  };
-  const [notion, discord] = await Promise.all([tab(MEMBERS_GID).catch(() => []), tab(DISCORD_GID).catch(() => [])]);
+  const tab = async (key: SheetKey) => parseCSV(await fetchSheetCsv(key));
+  const [notion, discord] = await Promise.all([tab("members").catch(() => []), tab("discord").catch(() => [])]);
 
   const names = (rows: string[][], emailRe: RegExp, nameRes: RegExp[]) => {
     const out = new Map<string, string>();
@@ -124,7 +117,6 @@ async function withTeamNames(users: Map<string, AllowedUser>): Promise<Map<strin
 }
 
 // ── Teams of each person, from the "User ID Notion - Out Team in Media" tab (the Notion member list) ──
-const MEMBERS_GID = "445999363";
 
 /**
  * Name prefixes used in Notion ("GP : Jenny", "DS M : Boss", …) → "Task Team Creator" labels.
@@ -148,10 +140,7 @@ const PREFIX_TEAMS: Record<string, string[]> = {
 
 /** email (lower-case) → team labels this person belongs to ([] when it cannot be told) */
 export async function fetchMemberTeams(): Promise<Map<string, string[]>> {
-  const url = `https://docs.google.com/spreadsheets/d/${USERS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${MEMBERS_GID}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`members sheet ${res.status}`);
-  const [headers, ...rows] = parseCSV(await res.text());
+  const [headers, ...rows] = parseCSV(await fetchSheetCsv("members"));
   if (!headers) return new Map();
 
   const emailIdx = headers.findIndex((h) => /^(อีเมล|email)/i.test(h.trim()));
@@ -175,7 +164,6 @@ export async function fetchMemberTeams(): Promise<Map<string, string[]>> {
 }
 
 // ── Teams from the "[New] User ID Discord - Out Team" tab (Discord roles) ──
-const DISCORD_GID = "1381351958";
 
 /** Discord "ทีม" role → "Task Team Creator" labels. Roles not listed here (ECB, …) say nothing. */
 const DISCORD_TEAMS: Record<string, string[]> = {
@@ -212,10 +200,7 @@ const NAME_PREFIX_TEAMS: Record<string, string[]> = {
 
 /** email (lower-case) → team labels this person may create briefs for ([] when it cannot be told) */
 export async function fetchDiscordTeams(): Promise<Map<string, string[]>> {
-  const url = `https://docs.google.com/spreadsheets/d/${USERS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${DISCORD_GID}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`discord sheet ${res.status}`);
-  return parseDiscordTeams(parseCSV(await res.text()));
+  return parseDiscordTeams(parseCSV(await fetchSheetCsv("discord")));
 }
 
 function parseDiscordTeams([headers, ...rows]: string[][]): Map<string, string[]> {
@@ -276,10 +261,7 @@ const MULTIMEDIA_GROUPS = new Set(["DS M", "DS"]);
 
 /** Multimedia designers who can be made responsible (Notion "Assignee") for a request */
 export async function fetchMultimediaDesigners(): Promise<Designer[]> {
-  const url = `https://docs.google.com/spreadsheets/d/${USERS_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${MEMBERS_GID}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`members sheet ${res.status}`);
-  const [h, ...rows] = parseCSV(await res.text());
+  const [h, ...rows] = parseCSV(await fetchSheetCsv("members"));
   if (!h) return [];
   const col = (re: RegExp) => h.findIndex((x) => re.test(x.trim()));
   const nameIdx = col(/^ชื่อ$/), groupIdx = col(/^กลุ่ม/), emailIdx = col(/^(อีเมล|email)/i), idIdx = col(/^notion user id$/i);

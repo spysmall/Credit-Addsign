@@ -1,6 +1,6 @@
 import { TEAM_MEMBERS } from "@/lib/team";
+import { fetchSheetCsv } from "./scriptApi";
 
-const SHEET_ID = "1jIzyt15EL5DaODqTG-e7D2pSWbsqETG6gsq60yhR_zY";
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
@@ -18,9 +18,7 @@ export async function fetchLeaveHours(
   year: number,
   month: number
 ): Promise<Record<string, number>> {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=leave`;
-  const res = await fetch(url, { cache: "no-store" });
-  const text = await res.text();
+  const text = await fetchSheetCsv("leave");
 
   const rows = parseCSV(text);
   const result: Record<string, number> = {};

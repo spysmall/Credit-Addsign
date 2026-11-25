@@ -5,9 +5,9 @@
  *   - otherwise the Apps Script web app (lib/Code.gs: createNotionTask / notionStatus) — the deployed site
  */
 import type { AssignedTask } from "./taskAssign";
+import { callScript, SCRIPT_URL } from "./scriptApi";
 
 export const NOTION_BRIDGE_URL = process.env.NEXT_PUBLIC_NOTION_BRIDGE_URL ?? "";
-const SCRIPT_URL = process.env.NEXT_PUBLIC_TASKS_SCRIPT_URL || process.env.NEXT_PUBLIC_DIST_SCRIPT_URL || "";
 
 /** true when this build can create tasks in Notion at all */
 export const NOTION_ENABLED = !!NOTION_BRIDGE_URL || !!SCRIPT_URL;
@@ -25,14 +25,8 @@ export async function pushTaskToNotion(task: AssignedTask): Promise<{ id: string
     return { id: json.id, url: json.url };
   }
   if (!SCRIPT_URL) throw new Error("Notion is not configured");
-  const res = await fetch(SCRIPT_URL, {
-    method: "POST",
-    // text/plain avoids a CORS preflight; Apps Script reads e.postData.contents
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action: "createNotionTask", task }),
-  });
-  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; url?: string; error?: string };
-  if (!json.ok || !json.url || !json.id) throw new Error(json.error ?? `script ${res.status}`);
+  const json = await callScript<{ ok?: boolean; id?: string; url?: string; error?: string }>({ action: "createNotionTask", task });
+  if (!json.ok || !json.url || !json.id) throw new Error(json.error ?? "script error");
   return { id: json.id, url: json.url };
 }
 
@@ -42,11 +36,11 @@ export interface DesignerQueue { open: number; lastDue: string | null }
 /** Notion user id → their queue */
 export async function fetchDesignerLoad(): Promise<Record<string, DesignerQueue>> {
   if (!NOTION_ENABLED) return {};
-  const res = NOTION_BRIDGE_URL
-    ? await fetch(`${NOTION_BRIDGE_URL}/designers/load`)
-    : await fetch(`${SCRIPT_URL}?action=designerLoad`);
-  const json = (await res.json().catch(() => ({}))) as { results?: Record<string, DesignerQueue>; error?: string };
-  if (!res.ok || !json.results) throw new Error(json.error ?? `load ${res.status}`);
+  type Reply = { results?: Record<string, DesignerQueue>; error?: string };
+  const json: Reply = NOTION_BRIDGE_URL
+    ? await fetch(`${NOTION_BRIDGE_URL}/designers/load`).then((r) => r.json() as Promise<Reply>)
+    : await callScript<Reply>({ action: "designerLoad" });
+  if (!json.results) throw new Error(json.error ?? "designer load failed");
   return json.results;
 }
 
@@ -59,11 +53,10 @@ export interface NotionTaskState {
 /** Read the current Notion state of several task pages (ids from their URLs). */
 export async function fetchNotionStatuses(ids: string[]): Promise<Record<string, NotionTaskState>> {
   if (ids.length === 0 || !NOTION_ENABLED) return {};
-  const q = ids.map(encodeURIComponent).join(",");
-  const res = NOTION_BRIDGE_URL
-    ? await fetch(`${NOTION_BRIDGE_URL}/tasks/status?ids=${q}`)
-    : await fetch(`${SCRIPT_URL}?action=notionStatus&ids=${q}`);
-  const json = (await res.json().catch(() => ({}))) as { results?: Record<string, NotionTaskState>; error?: string };
-  if (!res.ok || !json.results) throw new Error(json.error ?? `status ${res.status}`);
+  type Reply = { results?: Record<string, NotionTaskState>; error?: string };
+  const json: Reply = NOTION_BRIDGE_URL
+    ? await fetch(`${NOTION_BRIDGE_URL}/tasks/status?ids=${ids.map(encodeURIComponent).join(",")}`).then((r) => r.json() as Promise<Reply>)
+    : await callScript<Reply>({ action: "notionStatus", ids });
+  if (!json.results) throw new Error(json.error ?? "status failed");
   return json.results;
 }

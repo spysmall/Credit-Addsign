@@ -1,7 +1,6 @@
 import { parseCSV as parseCSVRows } from "./csv";
+import { fetchSheetCsv } from "./scriptApi";
 
-const SHEET_ID = "1b1snrd3X-mM1lhoI_qOgEVX8UG49RKzhTXneFyeW4oY";
-const GID      = "1206331278";
 
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.trim().split("\n");
@@ -86,10 +85,7 @@ export async function fetchAllTaskUsage(
   year: number,
   month: number
 ): Promise<Record<string, TeamUsage>> {
-  const tabName = encodeURIComponent("[sum] All Task(in Notion)");
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${tabName}`;
-  const res = await fetch(url, { cache: "no-store" });
-  const text = await res.text();
+  const text = await fetchSheetCsv("allTask");
 
   // RFC-4180 parser (handles quoted fields with embedded newlines)
   const allRows: string[][] = [];
@@ -159,9 +155,7 @@ export async function fetchTaskUsage(
   year: number,
   month: number
 ): Promise<Record<string, TeamUsage>> {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`;
-  const res = await fetch(url, { cache: "no-store" });
-  const text = await res.text();
+  const text = await fetchSheetCsv("taskUsage");
 
   const rows = parseCSV(text);
   if (rows.length === 0) return {};
@@ -245,11 +239,7 @@ export async function fetchTaskUsage(
  * Used to order the team picker so the busiest teams come first.
  */
 export async function fetchTeamActivity(days = 30): Promise<Record<string, number>> {
-  const tabName = encodeURIComponent("[sum] All Task(in Notion)");
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${tabName}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(String(res.status));
-  const [headers, ...rows] = parseCSVRows(await res.text());
+  const [headers, ...rows] = parseCSVRows(await fetchSheetCsv("allTask"));
   if (!headers) return {};
 
   const teamIdx = headers.findIndex((h) => /^ทีม$/i.test(h.trim()));
