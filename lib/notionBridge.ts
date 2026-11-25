@@ -50,13 +50,21 @@ export interface NotionTaskState {
   notFound?: boolean;    // page no longer exists or the integration lost access
 }
 
-/** Read the current Notion state of several task pages (ids from their URLs). */
+/** The script checks at most this many pages per request (lib/Code.gs → notionStatus). */
+const STATUS_BATCH = 50;
+
+/** Read the current Notion state of several task pages (ids from their URLs), 50 per request. */
 export async function fetchNotionStatuses(ids: string[]): Promise<Record<string, NotionTaskState>> {
   if (ids.length === 0 || !NOTION_ENABLED) return {};
   type Reply = { results?: Record<string, NotionTaskState>; error?: string };
-  const json: Reply = NOTION_BRIDGE_URL
-    ? await fetch(`${NOTION_BRIDGE_URL}/tasks/status?ids=${ids.map(encodeURIComponent).join(",")}`).then((r) => r.json() as Promise<Reply>)
-    : await callScript<Reply>({ action: "notionStatus", ids });
-  if (!json.results) throw new Error(json.error ?? "status failed");
-  return json.results;
+  const out: Record<string, NotionTaskState> = {};
+  for (let i = 0; i < ids.length; i += STATUS_BATCH) {
+    const batch = ids.slice(i, i + STATUS_BATCH);
+    const json: Reply = NOTION_BRIDGE_URL
+      ? await fetch(`${NOTION_BRIDGE_URL}/tasks/status?ids=${batch.map(encodeURIComponent).join(",")}`).then((r) => r.json() as Promise<Reply>)
+      : await callScript<Reply>({ action: "notionStatus", ids: batch });
+    if (!json.results) throw new Error(json.error ?? "status failed");
+    Object.assign(out, json.results);
+  }
+  return out;
 }
