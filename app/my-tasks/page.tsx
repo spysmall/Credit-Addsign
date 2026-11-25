@@ -87,8 +87,9 @@ function MyTasks() {
           const r = results[notionPageId(t.notionUrl)!];
           if (!r) continue;
           if (r.inTrash) updateAssigned(t.year, t.month, t.id, { cancelled: true, cancelledAt: at, notionStatus: r.status ?? undefined, notionCheckedAt: at });
-          else if (r.notFound) updateAssigned(t.year, t.month, t.id, { notionStatus: "__notfound", notionCheckedAt: at });
-          else if (r.status) updateAssigned(t.year, t.month, t.id, { notionStatus: r.status, notionCheckedAt: at });
+          // only write when something changed — every write goes to the shared store (Firestore)
+          else if (r.notFound) { if (t.notionStatus !== "__notfound") updateAssigned(t.year, t.month, t.id, { notionStatus: "__notfound", notionCheckedAt: at }); }
+          else if (r.status && r.status !== t.notionStatus) updateAssigned(t.year, t.month, t.id, { notionStatus: r.status, notionCheckedAt: at });
         }
         setTick((n) => n + 1);
       })
